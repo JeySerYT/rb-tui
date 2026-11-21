@@ -4,8 +4,38 @@
 
 ## Установка
 
+### 1. Одной командой (Linux / macOS, Python не нужен)
+
 ```bash
-pip install -e /home/jeyseryt/Документы/Project\'s/Скрипты/rb-tui
+curl -fsSL https://github.com/JeySerYT/rb-tui/releases/latest/download/install.sh | sh
+```
+
+Скрипт скачает готовый бинарник из GitHub Releases, проверит sha256 и положит
+его в `~/.local/bin`.
+
+- другой каталог: `RB_TUI_INSTALL_DIR=/usr/local/bin sh install.sh`
+- конкретная версия: `RB_TUI_VERSION=0.3.0-beta.1 sh install.sh`
+- если репозиторий называется иначе — поменяй `RB_TUI_REPO=owner/repo`.
+
+### 2. Готовый бинарник вручную
+
+Со страницы **Releases** скачивается архив под свою систему:
+
+`rb-tui-linux-x86_64.tar.gz`, `rb-tui-linux-arm64.tar.gz`,
+`rb-tui-darwin-arm64.tar.gz`, `rb-tui-windows-x86_64.zip`.
+
+Распаковать и положить `rb-tui` в любой каталог из `PATH`.
+
+### 3. Через uv (Python)
+
+```bash
+uv tool install git+https://github.com/JeySerYT/rb-tui
+```
+
+### 4. Из исходников
+
+```bash
+pip install -e .
 ```
 
 После установки доступна команда `rb-tui` из любого места.
@@ -129,6 +159,10 @@ rb-tui/
 ├── LICENSE                 # MIT
 ├── README.md               # этот файл
 ├── CHANGELOG.md
+├── install.sh              # установщик одной командой (curl | sh)
+├── packaging/rb-tui.spec   # сборка standalone-бинарника (PyInstaller)
+├── scripts/build-binary.sh # локальная сборка бинарника
+├── .github/workflows/      # CI: тесты + релизы под 4 платформы
 ├── tests/                  # автотесты (unittest, без сети)
 ├── rb_tui/
 │   ├── cli.py              # CLI-диспетчер (argparse)

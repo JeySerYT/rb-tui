@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0-beta.1 (2026-11-22)
+
+Установка без Python и не только через pip.
+
+- Standalone-бинарник (PyInstaller): `packaging/rb-tui.spec`, 12 МБ, Python не нужен
+- `install.sh` — установка одной командой `curl … | sh` с проверкой sha256
+- GitHub Actions: релизы под `linux-x86_64`, `linux-arm64`, `darwin-arm64`, `windows-x86_64`
+- GitHub Actions: тесты на Python 3.10 / 3.12 / 3.14
+- `scripts/build-binary.sh` — локальная сборка архива для релиза
+- README: 4 способа установки (curl, бинарник, uv, pip)
+
 ## 0.2.0-beta.3 (2026-11-22)
 
 - Добавлены автотесты: 42 теста на `unittest`, без сети (guard, probe, metrics, export, version)
