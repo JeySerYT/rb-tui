@@ -108,14 +108,28 @@ Systemd-юзер-таймер запускает `rb-tui --sync` каждый ч
 systemctl --user enable --now rb-tui-sync.timer
 ```
 
+## Тесты
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Тесты не ходят в сеть: пробы и API подменяются моками.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
+
 ## Структура проекта
 
 ```
 rb-tui/
 ├── pyproject.toml          # pip-пакет
 ├── VERSION                 # версия
+├── LICENSE                 # MIT
 ├── README.md               # этот файл
 ├── CHANGELOG.md
+├── tests/                  # автотесты (unittest, без сети)
 ├── rb_tui/
 │   ├── cli.py              # CLI-диспетчер (argparse)
 │   ├── config.py           # opencode.json (JSONC, правки, diff)

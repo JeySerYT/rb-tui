@@ -1,6 +1,7 @@
 """rb-tui: ReformBoss model catalog manager."""
 
 import os
+import re
 
 
 def _read_version():
@@ -26,4 +27,14 @@ def _read_version():
     return "0.0.0-unknown"
 
 
-__version__ = _read_version()
+def _pretty_version(value):
+    """PEP 440 -> привычная запись: 0.2.0b2 -> 0.2.0-beta.2."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)(a|b|rc)(\d+)", value or "")
+    if not m:
+        return value
+    base, tag, num = m.groups()
+    name = {"a": "alpha", "b": "beta", "rc": "rc"}[tag]
+    return f"{base}-{name}.{num}"
+
+
+__version__ = _pretty_version(_read_version())
