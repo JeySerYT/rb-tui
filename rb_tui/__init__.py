@@ -1,7 +1,19 @@
 """rb-tui: ReformBoss model catalog manager."""
 
+import os
+
 
 def _read_version():
+    # В исходниках VERSION — источник истины, даже если рядом лежит старый
+    # egg-info от предыдущей сборки.
+    here = os.path.dirname(os.path.abspath(__file__))
+    version_file = os.path.join(here, os.pardir, "VERSION")
+    try:
+        with open(version_file, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        pass
+    # Установленный пакет: версия из метаданных дистрибутива.
     try:
         from importlib.metadata import version, PackageNotFoundError
 
@@ -11,16 +23,7 @@ def _read_version():
             pass
     except Exception:
         pass
-    # фолбэк для запуска из исходников без установки
-    import os
-
-    here = os.path.dirname(os.path.abspath(__file__))
-    version_file = os.path.join(here, os.pardir, "VERSION")
-    try:
-        with open(version_file, encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return "0.0.0-unknown"
+    return "0.0.0-unknown"
 
 
 __version__ = _read_version()
