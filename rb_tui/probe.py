@@ -1,14 +1,100 @@
 """Тестирование моделей: probe, speed-тест, fingerprint."""
 
 import json
+import os
 import time
 import urllib.error
 import urllib.request
-import hashlib
+
+from rb_tui import guard
 
 
-def probe_with_metrics(base, key, model):
-    """Тест доступности модели + замер TTFT, total_time, tokens."""
+# Ошибки, означающие «API заметил зондирование / лимит ключа», а не смерть модели.
+THROTTLE_WORDS = (
+    "catalog_probe_detected",
+    "token_concurrency_limit",
+    "concurrency_limit",
+    "rate_limit",
+    "rate limit",
+    "too many requests",
+    "429",
+    "quota",
+    "temporarily blocked",
+    "probe detected",
+)
+
+
+class ProbeThrottled(Exception):
+    """API включил защиту. Прогон надо остановить, модели не виноваты."""
+
+    def __init__(self, msg, results=None):
+        super().__init__(msg)
+        self.msg = msg
+        self.results = results or []
+
+
+def is_throttle_error(msg):
+    low = (msg or "").lower()
+    return any(w in low for w in THROTTLE_WORDS)
+
+
+def probe_with_metrics(base, key, model, retries=1):
+    """Тест доступности модели + замер TTFT, total_time, tokens.
+
+    Повторяем только транзиентные 5xx/таймауты. На защиту API не повторяем,
+    а сразу сообщаем наверх — иначе ретраи только усугубляют блокировку.
+    """
+    retry_words = ("502", "503", "504", "timeout", "timed out", "overload", "busy")
+    for attempt in range(retries + 1):
+        status, ttft, total, tokens, fp, msg = _probe_once(base, key, model)
+        if status in ("OK", "THROTTLE"):
+            return status, ttft, total, tokens, fp, msg
+        low = msg.lower()
+        retryable = status == "ERR" and any(w in low for w in retry_words)
+        if retryable and attempt < retries:
+            time.sleep(2.0 * (attempt + 1))
+            continue
+        return status, ttft, total, tokens, fp, msg
+
+
+def probe_all(base, key, models, delay=None, budget=None, progress=False):
+    """Последовательный прогон маленькими порциями с паузой и джиттером.
+
+    - delay по умолчанию из guard.DEFAULT_DELAY (3 сек).
+    - budget ограничивает число запросов за прогон; список моделей лучше
+      готовить через guard.pick_targets().
+    - при первом детекте защиты выбрасывает ProbeThrottled с уже собранными
+      результатами, чтобы вызывающий не записал их как «мёртвые».
+    """
+    import sys as _sys
+
+    delay = guard.DEFAULT_DELAY if delay is None else delay
+    if budget is not None:
+        models = list(models)[:budget]
+
+    results = []
+    total = len(models)
+    for i, m in enumerate(models):
+        status, ttft, tot, tokens, fp, msg = probe_with_metrics(base, key, m)
+        if status == "THROTTLE":
+            if progress:
+                _sys.stderr.write("\r" + " " * 40 + "\r")
+                _sys.stderr.flush()
+            raise ProbeThrottled(msg, results)
+        results.append((m, status, ttft, tot, tokens, fp, msg))
+        if progress:
+            _sys.stderr.write(f"\r  проверено {i + 1}/{total}...")
+            _sys.stderr.flush()
+        if i < total - 1:
+            time.sleep(guard.jitter(delay))
+    if progress:
+        _sys.stderr.write("\r" + " " * 40 + "\r")
+        _sys.stderr.flush()
+    return results
+
+
+def _probe_once(base, key, model):
+    """Один запрос к модели. Возвращает (status, ttft, total, tokens, fp, msg)."""
     body = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": "Return exactly 'ok' and nothing else."}],
@@ -30,10 +116,7 @@ def probe_with_metrics(base, key, model):
         tokens = 0
         if "usage" in j:
             tokens = j["usage"].get("total_tokens", 0)
-
-        # fingerprint модели (если есть)
         fp = j.get("system_fingerprint", "")
-
         return "OK", ttft, total, tokens, fp, ""
     except urllib.error.HTTPError as e:
         total = round(time.monotonic() - start, 3)
@@ -43,7 +126,10 @@ def probe_with_metrics(base, key, model):
             msg = err.get("code") or err.get("type") or err.get("message") or f"HTTP {e.code}"
         except Exception:
             msg = f"HTTP {e.code}"
-        return "ERR", None, total, 0, "", str(msg)[:60]
+        msg = str(msg)[:80]
+        if e.code == 429 or is_throttle_error(msg):
+            return "THROTTLE", None, total, 0, "", msg
+        return "ERR", None, total, 0, "", msg
     except Exception as e:
         total = round(time.monotonic() - start, 3)
         return "NO", None, total, 0, "", type(e).__name__

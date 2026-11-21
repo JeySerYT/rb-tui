@@ -20,7 +20,7 @@ def save_metrics(metrics):
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
 
-def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint=""):
+def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint="", msg=""):
     if model_id not in metrics:
         metrics[model_id] = []
     entry = {
@@ -32,6 +32,8 @@ def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint=
     }
     if fingerprint:
         entry["fp"] = fingerprint
+    if msg:
+        entry["msg"] = msg
     metrics[model_id].append(entry)
     metrics[model_id] = metrics[model_id][-MAX_HISTORY:]
     return metrics

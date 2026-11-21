@@ -5,7 +5,6 @@ import os
 import sys
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from rb_tui import __version__
@@ -17,7 +16,8 @@ from rb_tui.config import (
     load_config, read_raw, apply_edits, append_log, diff_with_last_backup, config_check,
 )
 from rb_tui.api import api_key, fetch_catalog
-from rb_tui.probe import probe_with_metrics, speed_test, compare_models
+from rb_tui import guard
+from rb_tui.probe import probe_with_metrics, probe_all, speed_test, compare_models, ProbeThrottled
 from rb_tui.metrics import (
     load_metrics, save_metrics, add_metric, model_status,
     avg_ttft, success_rate, full_stats, lifetime, health_score,
@@ -28,13 +28,69 @@ from rb_tui.render import (
     print_grouped_by_owner, print_filtered, print_bench_results,
     print_compare_results, print_speed_result,
 )
-from rb_tui.sync import auto_sync, save_catalog, load_prev_catalog, auto_cleanup
+from rb_tui.sync import auto_sync, save_catalog, load_prev_catalog, auto_cleanup, auto_rollback
 from rb_tui.alerts import (
     desktop_notify, notify_new_models, notify_stable_to_dead, notify_anomalies,
     send_webhook, build_webhook_payload,
 )
 from rb_tui.export import export_json, export_csv, export_html
 from rb_tui.dashboard import serve
+
+
+def probes_allowed():
+    """Общая проверка: не в cooldown ли пробы."""
+    line = guard.cooldown_status_line()
+    if line:
+        print(y("  ⏸ " + line))
+        return False
+    return True
+
+
+def run_probe_cycle(base, key, live, budget=None, progress=False):
+    """Безопасный цикл проб: cooldown → ротация → порция → стоп на детекте.
+
+    Возвращает (results, throttled). results is None, если пробы на паузе.
+    Метрики пишутся только для реально проверенных моделей: срабатывание
+    защиты API никогда не превращается в статус dead.
+    """
+    line = guard.cooldown_status_line()
+    if line:
+        print(y("  ⏸ " + line))
+        return None, False
+
+    budget = guard.DEFAULT_BUDGET if budget is None else budget
+    if guard.daily_remaining() <= 0:
+        print(y(f"  суточный лимит проб исчерпан ({guard.DEFAULT_DAILY_BUDGET}), "
+                f"продолжу завтра"))
+        return [], False
+    budget = guard.clamp_budget(budget)
+    targets = guard.pick_targets(live, budget=budget)
+    if not targets:
+        print(dim("  в каталоге нет моделей для проверки"))
+        return [], False
+
+    print(dim(f"  проверяю {len(targets)} из {len(live)} моделей каталога "
+              f"(пауза {guard.DEFAULT_DELAY:g}с, ротация)"))
+
+    throttled = False
+    try:
+        results = probe_all(base, key, targets, progress=progress)
+    except ProbeThrottled as e:
+        results = e.results
+        throttled = True
+        left = guard.set_cooldown(reason=str(e.msg)[:80])
+        print(r(f"  ⛔ API включил защиту: {e.msg}"))
+        print(y(f"  прогон остановлен, пробы на паузе {guard.human_left(left)}."))
+        print(dim(f"  проверено до срабатывания: {len(results)} — пишу только их."))
+
+    if results:
+        metrics = load_metrics()
+        for mid, status, ttft, total, tokens, fp, msg in results:
+            metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg)
+        save_metrics(metrics)
+        guard.mark_probed([r[0] for r in results])
+
+    return results, throttled
 
 
 def main():
@@ -45,19 +101,28 @@ def main():
         description="ReformBoss model catalog manager — sync, test, benchmark, dashboard",
     )
     parser.add_argument("--version", action="store_true", help="Показать версию")
-    parser.add_argument("--sync", action="store_true", help="Автосинхронизация каталога + тест")
+    parser.add_argument("--sync", action="store_true",
+                        help="Автосинхронизация каталога + проверка порции моделей")
     parser.add_argument("--report", action="store_true", help="Показать отчёт о каталоге")
-    parser.add_argument("--test", action="store_true", help="Тест всех моделей с метриками")
+    parser.add_argument("--test", action="store_true",
+                        help="Проверить порцию моделей (бюджет + ротация)")
+    parser.add_argument("--probe-model", type=str, default=None, metavar="MODEL",
+                        help="Проверить одну модель (с учётом cooldown)")
+    parser.add_argument("--probe-budget", nargs="?", const=guard.DEFAULT_BUDGET,
+                        type=int, default=None, metavar="N",
+                        help=f"Сколько моделей проверять за прогон (по умолч. {guard.DEFAULT_BUDGET})")
+    parser.add_argument("--probe-reset", action="store_true",
+                        help="Снять паузу проб (cooldown)")
 
     parser.add_argument("--top", nargs="?", const=10, type=int, default=None,
                         help="Топ N моделей по TTFT (по умолч. 10)")
     parser.add_argument("--stats", action="store_true", help="Общая статистика")
-    parser.add_argument("--json", nargs="?", const=None, type=str, default=None,
-                        help="Экспорт метрик в JSON")
-    parser.add_argument("--export-html", nargs="?", const=None, type=str, default=None,
-                        help="Экспорт HTML-отчёта")
-    parser.add_argument("--export-csv", nargs="?", const=None, type=str, default=None,
-                        help="Экспорт CSV")
+    parser.add_argument("--json", nargs="?", const="", type=str, default=None,
+                        help="Экспорт метрик в JSON (без пути — в stdout)")
+    parser.add_argument("--export-html", nargs="?", const="", type=str, default=None,
+                        help="Экспорт HTML-отчёта (без пути — в stdout)")
+    parser.add_argument("--export-csv", nargs="?", const="", type=str, default=None,
+                        help="Экспорт CSV (без пути — в stdout)")
     parser.add_argument("--history", type=str, default=None, metavar="MODEL",
                         help="История TTFT модели (ASCII-график)")
     parser.add_argument("--diff", action="store_true", help="Diff с последним бэкапом")
@@ -68,6 +133,10 @@ def main():
     parser.add_argument("--speed", type=str, default=None, metavar="MODEL",
                         help="Тест скорости генерации (tokens/s)")
     parser.add_argument("--serve", action="store_true", help="Запустить HTTP-дашборд")
+    parser.add_argument("--serve-host", type=str, default="127.0.0.1",
+                        help="Хост дашборда (по умолч. 127.0.0.1)")
+    parser.add_argument("--serve-port", type=int, default=9090,
+                        help="Порт дашборда (по умолч. 9090)")
     parser.add_argument("--config-check", action="store_true", help="Проверить конфиг")
     parser.add_argument("--prune-backups", nargs="?", const=30, type=int, default=None,
                         help="Удалить бэкапы старше N дней (по умолч. 30)")
@@ -93,6 +162,11 @@ def main():
         return
 
     # ── быстрые команды без конфига ──
+    if args.probe_reset:
+        guard.clear_cooldown()
+        print(g("  пауза проб снята"))
+        return
+
     if args.prune_backups is not None:
         removed = prune_backups(days=args.prune_backups)
         print(f"  удалено {removed} бэкапов старше {args.prune_backups} дней")
@@ -106,8 +180,17 @@ def main():
     try:
         raw, settings, cfg_models = load_config()
     except Exception as e:
-        print(r(f"не смог разобрать конфиг: {e}"))
-        sys.exit(1)
+        ok, msg = auto_rollback()
+        if ok:
+            print(y(f"конфиг был сломан, откатился к {msg}"))
+            try:
+                raw, settings, cfg_models = load_config()
+            except Exception as e2:
+                print(r(f"после отката всё ещё не читается: {e2}"))
+                sys.exit(1)
+        else:
+            print(r(f"не смог разобрать конфиг: {e} ({msg})"))
+            sys.exit(1)
 
     key = api_key(settings)
     base = settings.get("baseURL", "https://api.reformboss.com/v1")
@@ -156,18 +239,27 @@ def main():
         return
 
     if args.json is not None:
-        path = export_json(args.json)
-        print(f"  экспорт: {path}" if path else "  экспорт в stdout")
+        out = export_json(args.json or None)
+        if args.json:
+            print(f"  экспорт: {out}")
+        else:
+            print(out)
         return
 
     if args.export_html is not None:
-        path = export_html(args.export_html)
-        print(f"  экспорт: {path}" if path else "  экспорт в stdout")
+        out = export_html(args.export_html or None)
+        if args.export_html:
+            print(f"  экспорт: {out}")
+        else:
+            print(out)
         return
 
     if args.export_csv is not None:
-        path = export_csv(args.export_csv)
-        print(f"  экспорт: {path}" if path else "  экспорт в stdout")
+        out = export_csv(args.export_csv or None)
+        if args.export_csv:
+            print(f"  экспорт: {out}")
+        else:
+            print(out)
         return
 
     if args.group_by_owner:
@@ -181,7 +273,7 @@ def main():
         return
 
     if args.serve:
-        serve()
+        serve(host=args.serve_host, port=args.serve_port)
         return
 
     if args.fuzzy:
@@ -199,14 +291,20 @@ def main():
         return
 
     if args.bench:
+        if not probes_allowed():
+            return
         _cmd_bench(base, key, args.bench)
         return
 
     if args.compare:
+        if not probes_allowed():
+            return
         _cmd_compare(base, key, args.compare[0], args.compare[1])
         return
 
     if args.speed:
+        if not probes_allowed():
+            return
         _cmd_speed(base, key, args.speed)
         return
 
@@ -238,21 +336,48 @@ def main():
         disappeared = [m for m in prev if m not in live]
     save_catalog(live)
 
+    # ── --probe-model ──
+    if args.probe_model:
+        mid = args.probe_model
+        line = guard.cooldown_status_line()
+        if line:
+            print(y("  ⏸ " + line))
+            return
+        if guard.daily_remaining() <= 0:
+            print(y(f"  суточный лимит проб исчерпан ({guard.DEFAULT_DAILY_BUDGET}), "
+                    f"продолжу завтра"))
+            return
+        if mid not in live:
+            print(r(f"  {mid} нет в каталоге API — проверять бессмысленно"))
+            return
+        status, ttft, total, tokens, fp, msg = probe_with_metrics(base, key, mid)
+        if status == "THROTTLE":
+            left = guard.set_cooldown(reason=str(msg)[:80])
+            print(r(f"  ⛔ API включил защиту: {msg}"))
+            print(y(f"  пробы на паузе {guard.human_left(left)}, метрика не записана"))
+            return
+        metrics = load_metrics()
+        metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg)
+        save_metrics(metrics)
+        guard.mark_probed([mid])
+        print(f"  {mid}: {status}  ttft={ttft}  total={total}  tokens={tokens}")
+        return
+
     # ── --sync ──
     if args.sync:
         auto_sync(new, gone, live)
-        # тест с метриками
-        targets = sorted(set(cfg_models) | set(new))
-        log_line = f"sync: тестирую {len(targets)} моделей..."
-        print(f"  {dim(log_line)}")
+        # безопасный тест: только живые модели, порция с ротацией
+        results, _throttled = run_probe_cycle(
+            base, key, live, budget=args.probe_budget, progress=True)
+        if results is None:
+            return
+
         metrics = load_metrics()
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            results = list(ex.map(lambda m: (m, *probe_with_metrics(base, key, m)), targets))
-        for mid, status, ttft, total, tokens, fp, msg in results:
-            metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp)
-        save_metrics(metrics)
         ok_count = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
-        print(f"  {g(f'✅ {ok_count}/{len(results)} доступны')}, метрики сохранены")
+        if results:
+            print(f"  {g(f'✅ {ok_count}/{len(results)} доступны')}, метрики сохранены")
+        else:
+            print(y("  метрики не обновлялись"))
 
         # Уведомления
         target_live = [m for m in live if m not in new]
@@ -274,18 +399,15 @@ def main():
         render_report(cfg_models, live, new, gone, key_ok=True, base=base,
                       prev_date=prev_date, appeared=appeared, disappeared=disappeared)
 
-    if args.report or not INTERACTIVE:
+    if args.report or args.test or not INTERACTIVE:
         show()
         if args.test:
-            targets = sorted(set(cfg_models) | set(new))
-            print(dim(f"  тестирую {len(targets)} моделей..."))
-            metrics = load_metrics()
-            with ThreadPoolExecutor(max_workers=6) as ex:
-                results = list(ex.map(lambda m: (m, *probe_with_metrics(base, key, m)), targets))
-            for mid, status, ttft, total, tokens, fp, msg in results:
-                metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp)
-            save_metrics(metrics)
-            print_test_table(results, metrics)
+            results, _throttled = run_probe_cycle(
+                base, key, live, budget=args.probe_budget)
+            if results:
+                print_test_table(results, load_metrics())
+            elif results is not None:
+                print(y("  нет результатов для таблицы"))
         return
 
     # ── интерактивный режим ──
@@ -352,16 +474,13 @@ def main():
                         print(r(msg))
 
         elif choice == "3":
-            targets = sorted(set(cfg_models) | set(new))
-            print(dim(f"  тестирую {len(targets)} моделей..."))
-            metrics = load_metrics()
-            with ThreadPoolExecutor(max_workers=6) as ex:
-                results = list(ex.map(lambda m: (m, *probe_with_metrics(base, key, m)), targets))
-            for mid, status, ttft, total, tokens, fp, msg in results:
-                metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp)
-            save_metrics(metrics)
-            print_test_table(results, metrics)
-            last_results = results
+            results, _throttled = run_probe_cycle(
+                base, key, live, budget=args.probe_budget)
+            if results:
+                print_test_table(results, load_metrics())
+                last_results = results
+            elif results is not None:
+                print(y("  нет результатов для таблицы"))
 
         elif choice == "4" and (last_results or new or gone):
             ts = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -483,7 +602,7 @@ def _cmd_speed(base, key, model_id):
 
 
 def _cmd_watch(base, key, interval=300):
-    """Режим наблюдения: каждые N секунд обновлять статус."""
+    """Режим наблюдения: каждые N секунд обновлять статус порцией моделей."""
     from rb_tui.metrics import load_metrics, model_status
 
     print(bold("  WATCH MODE"))
@@ -498,19 +617,16 @@ def _cmd_watch(base, key, interval=300):
                 time.sleep(interval)
                 continue
 
-            metrics = load_metrics()
-            targets = sorted(live)
-            with ThreadPoolExecutor(max_workers=6) as ex:
-                results = list(ex.map(lambda m: (m, *probe_with_metrics(base, key, m)), targets))
-
-            for mid, status, ttft, total, tokens, fp, msg in results:
-                metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp)
-            save_metrics(metrics)
+            results, _throttled = run_probe_cycle(base, key, live, progress=False)
 
             ts = datetime.now().strftime("%H:%M:%S")
-            ok = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
-            stable = sum(1 for r_ in results if model_status(metrics, r_[0]) == "stable")
-            print(f"  [{ts}] {g(str(ok))}/{len(results)} живых, {g(str(stable))} stable")
+            if results is None:
+                print(f"  [{ts}] пробы на паузе")
+            else:
+                metrics = load_metrics()
+                ok = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
+                stable = sum(1 for r_ in results if model_status(metrics, r_[0]) == "stable")
+                print(f"  [{ts}] {g(str(ok))}/{len(results)} живых, {g(str(stable))} stable")
 
             time.sleep(interval)
     except KeyboardInterrupt:

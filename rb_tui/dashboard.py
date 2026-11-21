@@ -120,9 +120,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
 
-def serve(host="0.0.0.0", port=9090):
+def serve(host="127.0.0.1", port=9090):
     """Запустить HTTP-дашборд."""
-    server = HTTPServer((host, port), DashboardHandler)
+    try:
+        server = HTTPServer((host, port), DashboardHandler)
+    except OSError as e:
+        print(f"  ❌ не смог занять {host}:{port} — {e}")
+        print("  порт занят? укажи другой: rb-tui --serve --serve-port 9091")
+        return
     print(f"  🌐 Дашборд: http://{host}:{port}")
     print(f"  📡 API:     http://{host}:{port}/api/metrics")
     print(f"  ❤️  Health:  http://{host}:{port}/health")
