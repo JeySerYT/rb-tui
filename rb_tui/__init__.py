@@ -6,14 +6,17 @@ import re
 
 def _read_version():
     # В исходниках VERSION — источник истины, даже если рядом лежит старый
-    # egg-info от предыдущей сборки.
+    # egg-info от предыдущей сборки. В бинарнике VERSION лежит внутри пакета.
     here = os.path.dirname(os.path.abspath(__file__))
-    version_file = os.path.join(here, os.pardir, "VERSION")
-    try:
-        with open(version_file, encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        pass
+    for candidate in (
+        os.path.join(here, "VERSION"),
+        os.path.join(here, os.pardir, "VERSION"),
+    ):
+        try:
+            with open(candidate, encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            continue
     # Установленный пакет: версия из метаданных дистрибутива.
     try:
         from importlib.metadata import version, PackageNotFoundError

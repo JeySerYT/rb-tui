@@ -9,7 +9,7 @@ a = Analysis(
     [os.path.join(ROOT, "rb_tui", "__main__.py")],
     pathex=[ROOT],
     binaries=[],
-    datas=[(os.path.join(ROOT, "VERSION"), ".")],
+    datas=[(os.path.join(ROOT, "VERSION"), "rb_tui")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
