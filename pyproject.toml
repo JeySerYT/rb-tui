@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "rb-tui"
+dynamic = ["version"]
+description = "ReformBoss model catalog manager — sync, test, benchmark, dashboard"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["reformboss", "opencode", "models", "ai"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: Console",
+]
+
+[project.scripts]
+rb-tui = "rb_tui.cli:main"
+rb_tui = "rb_tui.cli:main"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.setuptools.packages.find]
+include = ["rb_tui*"]
