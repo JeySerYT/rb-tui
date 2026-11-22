@@ -15,7 +15,7 @@ def extract(text, version):
     version = (version or "").strip().lstrip("v")
     if not version:
         return ""
-    # Заголовок может быть `## 1.2.3 (2026-01-01)` или `## [1.2.3] - 2026-01-01`.
+    # Заголовок — `## 1.2.3`; старые записи с `## [1.2.3] - 2026-01-01` тоже читаются.
     pattern = re.compile(
         rf"^##[ \t]+\[?v?{re.escape(version)}\]?(?![\w.-]).*?(?=^##[ \t]|\Z)",
         re.MULTILINE | re.DOTALL,

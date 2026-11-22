@@ -1,46 +1,61 @@
 # Changelog
 
-Все заметные изменения проекта. Формат основан на
-[Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — по
-[Semantic Versioning](https://semver.org/lang/ru/).
+Все значимые изменения rb-tui. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
+версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## Unreleased
 
-## [0.6.0-beta.1] - 2026-11-22
+## 0.6.0-beta.1
 
-Windows и macOS: поиск конфига, консоль, установка и отчёты об ошибках.
+*22 ноября 2026 · [сравнить с 0.5.0-beta.2](https://github.com/JeySerYT/rb-tui/compare/v0.5.0-beta.2...v0.6.0-beta.1)*
+
+Полная поддержка Windows и macOS: конфиг ищется по правилам OpenCode, консоль
+не падает на cp1251, установка идёт одной командой, а ошибки уходят в Issue
+по шаблону.
 
 ### Добавлено
 
-- Поиск конфига OpenCode по ОС: `%APPDATA%\opencode` на Windows,
+#### Конфиг и пути
+
+- Поиск глобального конфига OpenCode по ОС: `%APPDATA%\opencode` на Windows,
   `~/Library/Application Support/opencode` на macOS, XDG-каталог на Linux,
   затем `~/.config/opencode` и машинный каталог.
-- Поддержка `opencode.jsonc` (важнее `.json`) и выбор файла, в котором есть
-  провайдер `reformboss`.
-- `--config <PATH>` и `RB_TUI_CONFIG`; если конфиг не найден, печатается
-  список проверенных путей.
-- Кеш на Windows в `%LOCALAPPDATA%\rb-tui`.
+- `opencode.jsonc` важнее `opencode.json`; если провайдер `reformboss` есть
+  только в другом файле из списка, выигрывает он.
+- Переопределение пути: `--config <PATH>` и `RB_TUI_CONFIG`. Если конфиг
+  не найден, печатается список проверенных путей.
+- Кеш на Windows: `%LOCALAPPDATA%\rb-tui`.
+
+#### Консоль
+
 - `rb_tui/console.py`: вывод в UTF-8 с `errors="replace"`, ANSI через
   `SetConsoleMode`, пауза Enter перед закрытием окна.
-- Повтор `os.replace`, если файл занят антивирусом или вторым экземпляром.
-- Чтение ключа API как `utf-8-sig` — BOM из Блокнота больше не даёт 401.
+- Ключ API читается как `utf-8-sig` — BOM из Блокнота больше не даёт 401.
+- `os.replace` повторяется, если файл занят антивирусом или вторым экземпляром.
 - Выбор моделей без `fzf`: номера `1,3,5`, диапазон `2-4`, `all`.
-- Уведомления macOS (`osascript`) и Windows (toast через PowerShell).
-- Отчёты о падении: `crash-*.log` в кеше (три последних), санитайзер секретов,
-  форма Issue на GitHub с заполненным телом, `--diag` и `--report-bug`.
+
+#### Уведомления и отчёты
+
+- Desktop-уведомления macOS (`osascript`) и Windows (toast через PowerShell).
+- Отчёты о падении: три последних `crash-*.log`, санитайзер секретов,
+  `--diag` и `--report-bug`.
+- Форма Issue на GitHub с заполненным телом — токен в бинарник не вшивается.
 - Переменные `RB_TUI_NO_REPORT_PROMPT` и `RB_TUI_NO_CRASH_HOOK`.
 - Шаблон `.github/ISSUE_TEMPLATE/bug_report.md`.
-- Сборка Intel Mac: `rb-tui-darwin-x86_64.tar.gz` на `macos-15-intel`.
+
+#### Сборка
+
+- Intel Mac: `rb-tui-darwin-x86_64.tar.gz` на `macos-15-intel`.
 
 ### Изменено
 
 - Бэкапы учитывают имя конфига: `opencode.json` и `opencode.jsonc`.
 - `install.sh`: проверка `shasum -a 256`, определение Rosetta, подсказка
   для `~/.zshrc`.
-- `install.ps1`: снимает Mark-of-the-Web, предупреждает про SmartScreen,
-  сообщает об ARM64.
-- Неудачная проверка обновлений кешируется; ранее найденная версия
-  сохраняется, если текущая не менялась.
+- `install.ps1`: снимает Mark-of-the-Web, предупреждает про SmartScreen
+  и сообщает об ARM64.
+- Неудачная проверка обновлений кешируется; найденная версия сохраняется,
+  если текущая не менялась.
 - CI: Ubuntu 3.10/3.12/3.14, Windows и macOS; smoke `--version` и `--diag`
   для каждого собранного бинарника.
 
@@ -50,7 +65,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 - Проверки прав `chmod` не выполняются на Windows.
 - Окно Windows не закрывается мгновенно после ошибки.
 
-## [0.5.0-beta.2] - 2026-11-22
+## 0.5.0-beta.2
+
+*22 ноября 2026 · [сравнить с 0.5.0-beta.1](https://github.com/JeySerYT/rb-tui/compare/v0.5.0-beta.1...v0.5.0-beta.2)*
 
 Автопроверка обновлений и установка для Windows одной командой.
 
@@ -68,7 +85,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 - Ручные `--update-check` и `--update` обращаются к GitHub напрямую,
   чтобы не показать устаревшую версию из кеша.
 
-## [0.5.0-beta.1] - 2026-11-22
+## 0.5.0-beta.1
+
+*22 ноября 2026 · [сравнить с 0.4.0-beta.1](https://github.com/JeySerYT/rb-tui/compare/v0.4.0-beta.1...v0.5.0-beta.1)*
 
 Честные цифры, полная история и дашборд v2.
 
@@ -125,7 +144,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 - На Windows обновление применяется сразу после выхода — запущенный `.exe`
   нельзя перезаписать на месте.
 
-## [0.4.0-beta.1] - 2026-11-22
+## 0.4.0-beta.1
+
+*22 ноября 2026 · [сравнить с 0.3.0-beta.1](https://github.com/JeySerYT/rb-tui/compare/v0.3.0-beta.1...v0.4.0-beta.1)*
 
 Стриминговые метрики и новая панель.
 
@@ -149,7 +170,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 - Если провайдер не поддерживает стриминг, запрос повторяется обычным.
 - Тестов стало 52.
 
-## [0.3.0-beta.1] - 2026-11-22
+## 0.3.0-beta.1
+
+*22 ноября 2026 · [сравнить с 0.2.0-beta.3](https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.3...v0.3.0-beta.1)*
 
 Установка без Python и не только через pip.
 
@@ -167,7 +190,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 
 - README: четыре способа установки — curl, бинарник, uv, pip.
 
-## [0.2.0-beta.3] - 2026-11-22
+## 0.2.0-beta.3
+
+*22 ноября 2026 · [сравнить с 0.2.0-beta.2](https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.2...v0.2.0-beta.3)*
 
 ### Добавлено
 
@@ -175,16 +200,18 @@ Windows и macOS: поиск конфига, консоль, установка 
   version).
 - Файл `LICENSE` (MIT).
 
+### Изменено
+
+- README: разделы про тесты и лицензию; wheel включает `LICENSE`.
+
 ### Исправлено
 
 - `--version` показывает одну и ту же версию из исходников и после
   `pip install`.
 
-### Изменено
+## 0.2.0-beta.2
 
-- README: разделы про тесты и лицензию; wheel включает `LICENSE`.
-
-## [0.2.0-beta.2] - 2026-11-22
+*22 ноября 2026 · [сравнить с 0.2.0-beta.1](https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.1...v0.2.0-beta.2)*
 
 Бережное тестирование: инструмент больше не выглядит как массовый опрос API.
 
@@ -211,7 +238,9 @@ Windows и macOS: поиск конфига, консоль, установка 
   порту.
 - `--test` в интерактивном терминале действительно запускает тест, а не меню.
 
-## [0.2.0-beta.1] - 2026-11-22
+## 0.2.0-beta.1
+
+*22 ноября 2026*
 
 ### Добавлено
 
@@ -245,7 +274,9 @@ Windows и macOS: поиск конфига, консоль, установка 
 - 13 модулей в `rb_tui/` с чётким разделением ответственности.
 - Systemd-таймер запускается каждый час вместо раза в день.
 
-## [0.1.0] - 2026-10-25
+## 0.1.0
+
+*25 октября 2026*
 
 ### Добавлено
 
@@ -254,14 +285,3 @@ Windows и macOS: поиск конфига, консоль, установка 
 - Интерактивный TUI с `fzf`.
 - `--sync`, `--report`, `--test`.
 - TTFT-замеры и история метрик.
-
-[Unreleased]: https://github.com/JeySerYT/rb-tui/compare/v0.6.0-beta.1...HEAD
-[0.6.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.5.0-beta.2...v0.6.0-beta.1
-[0.5.0-beta.2]: https://github.com/JeySerYT/rb-tui/compare/v0.5.0-beta.1...v0.5.0-beta.2
-[0.5.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.4.0-beta.1...v0.5.0-beta.1
-[0.4.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.3.0-beta.1...v0.4.0-beta.1
-[0.3.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.3...v0.3.0-beta.1
-[0.2.0-beta.3]: https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.2...v0.2.0-beta.3
-[0.2.0-beta.2]: https://github.com/JeySerYT/rb-tui/compare/v0.2.0-beta.1...v0.2.0-beta.2
-[0.2.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.1.0...v0.2.0-beta.1
-[0.1.0]: https://github.com/JeySerYT/rb-tui/releases
