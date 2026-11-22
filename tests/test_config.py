@@ -41,8 +41,9 @@ class ConfigTest(unittest.TestCase):
         with open(self.key, "w", encoding="utf-8") as f:
             f.write("secret\n")
         os.chmod(self.key, 0o600)
+        # Путь на Windows содержит обратные слэши — в JSON их надо экранировать.
         with open(self.path, "w", encoding="utf-8") as f:
-            f.write(BASE % self.key)
+            f.write(BASE % self.key.replace("\\", "\\\\"))
         for patcher in (
             mock.patch.object(config, "CONFIG", self.path),
             mock.patch.object(utils, "CONFIG", self.path),
@@ -108,7 +109,7 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(any("chmod 600" in i for i in issues))
 
     def test_config_check_flags_bad_base_url_and_empty_name(self):
-        broken = (BASE % self.key).replace(
+        broken = (BASE % self.key.replace("\\", "\\\\")).replace(
             "https://api.reformboss.com/v1", "reformboss",
         ).replace('"name": "Alpha"', '"name": ""')
         with open(self.path, "w", encoding="utf-8") as f:

@@ -39,7 +39,11 @@ class ConfigDirsTest(unittest.TestCase):
         env = {"XDG_CONFIG_HOME": os.path.join(home, ".config-custom")}
         dirs = paths.config_dirs("linux", env=env, home=home)
         self.assertEqual(dirs[0], os.path.join(env["XDG_CONFIG_HOME"], "opencode"))
-        self.assertIn(os.path.join(os.sep, "etc", "opencode"), dirs)
+        # На Windows разделитель в путях другой — сравниваем нормализованные.
+        self.assertIn(
+            os.path.normpath(os.path.join(os.sep, "etc", "opencode")),
+            [os.path.normpath(d) for d in dirs],
+        )
 
     def test_opencode_config_dir_wins(self):
         home = os.path.join(os.sep, "home", "me")
