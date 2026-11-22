@@ -137,7 +137,7 @@ jobs:
           $hash = (Get-FileHash "out/$asset" -Algorithm SHA256).Hash.ToLower()
           "$hash  $asset" | Out-File -Encoding ascii "out/$asset.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: out/*
