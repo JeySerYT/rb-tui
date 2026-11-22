@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="assets/logo.svg" width="88" alt="rb-tui">
+  <img src="assets/logo.svg" width="88" alt="ReformBoss Catalog">
 </p>
 
-# rb-tui
+# ReformBoss Catalog
 
 [![tests](https://github.com/JeySerYT/rb-tui/actions/workflows/tests.yml/badge.svg)](https://github.com/JeySerYT/rb-tui/actions/workflows/tests.yml)
 [![release](https://img.shields.io/github/v/release/JeySerYT/rb-tui?include_prereleases&label=release)](https://github.com/JeySerYT/rb-tui/releases)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![license](https://img.shields.io/github/license/JeySerYT/rb-tui)](LICENSE)
 
-ReformBoss model catalog manager: синхронизация, проверки, метрики и дашборд.
+CLI и локальный дашборд для каталога моделей ReformBoss.
 
 `rb-tui` сверяет каталог моделей ReformBoss с `opencode.json`, бережно проверяет
 доступность моделей, собирает TTFT/TTS/TPS, показывает аномалии и отдаёт всё
