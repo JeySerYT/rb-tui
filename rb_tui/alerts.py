@@ -11,7 +11,7 @@ import urllib.request
 from rb_tui.metrics import (
     load_metrics, model_status, find_anomalies, health_score,
 )
-from rb_tui.utils import CACHE, atomic_write
+from rb_tui.utils import CACHE, atomic_write, check_url
 
 ALERTS_STATE = os.path.join(CACHE, "alerts-state.json")
 DEDUP_HOURS = 12
@@ -224,12 +224,18 @@ def webhook_format(url):
 
 def send_webhook(url, payload, retries=2):
     """Отправить сводку на вебхук с парой повторов."""
+    try:
+        url = check_url(url)
+    except ValueError:
+        return False
     data = json.dumps(payload).encode()
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=data, headers={
             "Content-Type": "application/json",
         })
         try:
+            # Схема проверена check_url в начале функции.
+            # nosemgrep
             with urllib.request.urlopen(req, timeout=10):
                 pass
             return True

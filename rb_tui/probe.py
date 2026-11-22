@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from rb_tui import guard
+from rb_tui.utils import check_url
 
 
 # Ошибки, означающие «API заметил зондирование / лимит ключа», а не смерть модели.
@@ -118,11 +119,13 @@ def stream_request(base, key, model, prompt, max_tokens=200, stream=True, timeou
         payload["stream"] = True
     body = json.dumps(payload).encode()
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
-    url = base.rstrip("/") + "/chat/completions"
+    url = check_url(base.rstrip("/") + "/chat/completions")
     req = urllib.request.Request(url, data=body, headers=headers)
 
     start = time.monotonic()
     try:
+        # Схема проверена check_url выше: file:// сюда не попадёт.
+        # nosemgrep
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             ctype = resp.headers.get("Content-Type", "")
             if "text/event-stream" in ctype:

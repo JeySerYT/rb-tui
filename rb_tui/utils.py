@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from datetime import datetime
 
 from rb_tui import console, paths
@@ -95,6 +96,15 @@ def parse_ok(raw):
 
 def pretty_name(mid):
     return mid.replace("-", " ").replace(".", " ").title()
+
+
+def check_url(url, allowed=("http", "https")):
+    """Отклонить file:// и прочие схемы до запроса, а не внутри urllib."""
+    text = str(url or "")
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme not in allowed or not parsed.netloc:
+        raise ValueError(f"недопустимый URL: {text!r}")
+    return text
 
 
 # ── Атомарная запись ──

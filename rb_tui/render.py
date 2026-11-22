@@ -1,5 +1,7 @@
 """Вывод в терминал: таблицы, топ, статистика, отчёты."""
 
+from datetime import datetime
+
 from rb_tui.utils import (
     g, r, y, bl, cy, dim, bold,
 )
@@ -51,6 +53,14 @@ def _secs(value):
         return ""
     col = g if value < 2 else (y if value < 5 else r)
     return col(f"{value:.3f}")
+
+
+def _clock(ts):
+    """HH:MM из метки времени со смещением или из старого локального формата."""
+    try:
+        return datetime.fromisoformat(ts).strftime("%H:%M")
+    except (ValueError, TypeError):
+        return str(ts)[-5:]
 
 
 def print_test_table(results, metrics=None):
@@ -269,7 +279,7 @@ def print_history_ascii(model_id, metrics=None, width=30):
     for ts, ttft in ok_entries[-20:]:
         bar_len = int((ttft - min_ttft) / span * width)
         bar = "█" * bar_len + "░" * (width - bar_len)
-        time_str = ts[-5:]  # только HH:MM
+        time_str = _clock(ts)  # только HH:MM
         col = g if ttft < 2 else (y if ttft < 5 else r)
         print(f"  {time_str} {col(bar)} {ttft:.3f}s")
     print()

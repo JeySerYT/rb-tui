@@ -253,8 +253,16 @@ class WindowsReplaceTest(unittest.TestCase):
         staged = helper.call_args[0][0]
         self.addCleanup(lambda: os.path.exists(staged) and os.unlink(staged))
         self.assertTrue(os.path.exists(staged))
+        self.assertEqual(os.stat(staged).st_mode & 0o777, 0o700)
         with open(target, "rb") as f:
             self.assertEqual(f.read(), b"old")
+
+
+class RequestTest(unittest.TestCase):
+    def test_rejects_non_https(self):
+        for url in ("http://example.com/x", "file:///etc/passwd"):
+            with self.assertRaises(ValueError):
+                update._request(url)
 
 
 class CheckCachedTest(unittest.TestCase):

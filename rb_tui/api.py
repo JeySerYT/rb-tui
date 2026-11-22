@@ -6,6 +6,8 @@ import re
 import urllib.error
 import urllib.request
 
+from rb_tui.utils import check_url
+
 
 def api_key(settings):
     key = settings.get("apiKey", "")
@@ -21,8 +23,11 @@ def api_key(settings):
 
 
 def http_json(url, key, data=None, timeout=25):
+    url = check_url(url)
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     req = urllib.request.Request(url, data=data, headers=headers)
+    # Схема проверена check_url выше: file:// сюда не попадёт.
+    # nosemgrep
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 

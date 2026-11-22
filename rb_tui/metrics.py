@@ -10,6 +10,19 @@ from rb_tui.utils import (
 )
 
 
+def _parse_ts(value):
+    """Метка времени со смещением; старые записи без смещения — локальные."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("нет метки времени")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M")
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed
+
+
 def load_metrics():
     try:
         with open(METRICS_HISTORY, encoding="utf-8") as f:
@@ -26,7 +39,7 @@ def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint=
     if model_id not in metrics:
         metrics[model_id] = []
     entry = {
-        "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "ts": datetime.now().astimezone().isoformat(timespec="minutes"),
         "status": status,
         "ttft": ttft,
         "total_time": total_time,
@@ -107,7 +120,7 @@ def load_history(model_id=None, limit=None):
 
 def prune_history(days=90):
     """Удалить из JSONL записи старше N дней. Возвращает (оставлено, удалено)."""
-    cutoff = datetime.now().timestamp() - days * 86400
+    cutoff = datetime.now().astimezone().timestamp() - days * 86400
     kept, removed = [], 0
     try:
         with open(METRICS_LOG, encoding="utf-8") as f:
@@ -117,11 +130,11 @@ def prune_history(days=90):
                     continue
                 try:
                     item = json.loads(line)
-                    ts = datetime.strptime(item.get("ts", ""), "%Y-%m-%d %H:%M")
+                    ts = _parse_ts(item.get("ts")).timestamp()
                 except (ValueError, TypeError):
                     removed += 1
                     continue
-                if ts.timestamp() >= cutoff:
+                if ts >= cutoff:
                     kept.append(line)
                 else:
                     removed += 1
@@ -138,11 +151,11 @@ def prune_history(days=90):
         fresh = []
         for h in data[mid]:
             try:
-                ts = datetime.strptime(h.get("ts", ""), "%Y-%m-%d %H:%M")
+                ts = _parse_ts(h.get("ts")).timestamp()
             except (ValueError, TypeError):
                 fresh.append(h)
                 continue
-            if ts.timestamp() >= cutoff:
+            if ts >= cutoff:
                 fresh.append(h)
             else:
                 changed = True

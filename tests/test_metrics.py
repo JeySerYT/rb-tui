@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from unittest import mock
 
 from rb_tui import metrics
@@ -158,6 +159,21 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual((kept, removed), (1, 1))
         self.assertEqual(len(metrics.load_history()), 1)
         self.assertEqual(len(metrics.load_metrics()["m"]), 1)
+
+    def test_timestamp_has_offset(self):
+        data = metrics.add_metric({}, "m", "OK", 1.0, 1.0, 1)
+        self.assertIsNotNone(datetime.fromisoformat(data["m"][0]["ts"]).tzinfo)
+
+    def test_prune_history_mixed_timestamp_formats(self):
+        lines = [
+            {"ts": "2000-01-01T00:00:00+00:00", "model": "m", "status": "OK"},
+            {"ts": "2000-01-01 00:00", "model": "m", "status": "OK"},
+            {"ts": "2999-01-01T00:00:00+00:00", "model": "m", "status": "OK"},
+        ]
+        with open(self.log, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        kept, removed = metrics.prune_history(days=1)
+        self.assertEqual((kept, removed), (1, 2))
 
     def test_prune_history_skips_null_timestamp(self):
         lines = [

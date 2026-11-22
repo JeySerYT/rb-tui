@@ -52,6 +52,9 @@ class AlertsTest(unittest.TestCase):
         self.assertEqual(alerts.webhook_format("https://discord.com/api/webhooks/x"), "discord")
         self.assertEqual(alerts.webhook_format("https://example.com/hook"), "generic")
 
+    def test_send_webhook_rejects_file_scheme(self):
+        self.assertFalse(alerts.send_webhook("file:///etc/passwd", {"text": "x"}))
+
     def test_send_webhook_retries(self):
         calls = []
 

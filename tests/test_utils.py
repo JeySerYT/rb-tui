@@ -8,6 +8,23 @@ from unittest import mock
 from rb_tui import utils
 
 
+class UrlCheckTest(unittest.TestCase):
+    def test_allows_http_and_https(self):
+        self.assertEqual(utils.check_url("https://example.com/v1"),
+                         "https://example.com/v1")
+        self.assertEqual(utils.check_url("http://localhost:8000/v1"),
+                         "http://localhost:8000/v1")
+
+    def test_rejects_other_schemes(self):
+        for url in ("file:///etc/passwd", "data:text/plain,x", "ftp://host/x", ""):
+            with self.assertRaises(ValueError):
+                utils.check_url(url)
+
+    def test_update_allows_only_https(self):
+        with self.assertRaises(ValueError):
+            utils.check_url("http://example.com/x", allowed=("https",))
+
+
 class SelectionTest(unittest.TestCase):
     def test_list_of_numbers(self):
         self.assertEqual(utils.parse_selection("1,3", 4), [0, 2])

@@ -152,6 +152,10 @@ class ReadStreamTest(unittest.TestCase):
         ]
         self.assertEqual(probe._read_stream(lines, 0.0)[-1], "fp_1")
 
+    def test_rejects_file_scheme(self):
+        with self.assertRaises(ValueError):
+            probe.stream_request("file:///etc", "k", "m", "go")
+
     def test_stream_request_keeps_fingerprint(self):
         class FakeResponse:
             headers = {"Content-Type": "text/event-stream"}

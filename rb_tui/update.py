@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -21,6 +22,7 @@ import urllib.request
 import zipfile
 
 from rb_tui import __version__
+from rb_tui.utils import check_url
 
 DEFAULT_REPO = "JeySerYT/rb-tui"
 USER_AGENT = f"rb-tui/{__version__}"
@@ -109,10 +111,13 @@ def is_newer(latest, current):
 
 
 def _request(url, timeout=TIMEOUT):
+    url = check_url(url, allowed=("https",))
     req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/vnd.github+json",
     })
+    # Схема проверена check_url выше: разрешён только https.
+    # nosemgrep
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -343,7 +348,7 @@ def _install(temp_binary, target):
     keep_staged = False
     try:
         shutil.copyfile(temp_binary, staged)
-        os.chmod(staged, 0o755)
+        os.chmod(staged, stat.S_IRWXU)
         try:
             check = subprocess.run(
                 [staged, "--version"], capture_output=True, text=True, timeout=20,
