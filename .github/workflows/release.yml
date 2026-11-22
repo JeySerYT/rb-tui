@@ -11,7 +11,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -47,7 +47,7 @@ jobs:
             asset: windows-x86_64
             python_setup: official
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Linux x86_64 собираем системным Python 3.10 из Ubuntu 22.04:
       # python-build-standalone из setup-python собран с AVX и падает
@@ -147,7 +147,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
