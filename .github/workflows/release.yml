@@ -1,0 +1,101 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: compile
+        run: python -m compileall -q rb_tui
+
+      - name: run tests
+        run: python -m unittest discover -s tests -v
+
+  build:
+    name: build ${{ matrix.asset }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux-x86_64
+          - os: ubuntu-24.04-arm
+            asset: linux-arm64
+          - os: macos-14
+            asset: darwin-arm64
+          - os: windows-latest
+            asset: windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install pyinstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: build
+        run: pyinstaller --clean --noconfirm packaging/rb-tui.spec
+
+      - name: package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p out
+          asset="rb-tui-${{ matrix.asset }}.tar.gz"
+          tar -czf "out/$asset" -C dist rb-tui
+          if command -v sha256sum >/dev/null 2>&1; then
+            sum="sha256sum"
+          else
+            sum="shasum -a 256"
+          fi
+          (cd out && $sum "$asset" > "$asset.sha256")
+
+      - name: package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $asset = "rb-tui-${{ matrix.asset }}.zip"
+          Compress-Archive -Path dist/rb-tui.exe -DestinationPath "out/$asset"
+          $hash = (Get-FileHash "out/$asset" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $asset" | Out-File -Encoding ascii "out/$asset.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/*
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp install.sh out/install.sh
+          gh release create "${GITHUB_REF_NAME}" --generate-notes out/*
