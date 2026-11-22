@@ -35,7 +35,7 @@ jobs:
             asset: linux-x86_64
           - os: ubuntu-24.04-arm
             asset: linux-arm64
-          - os: macos-14
+          - os: macos-15
             asset: darwin-arm64
           - os: windows-latest
             asset: windows-x86_64
