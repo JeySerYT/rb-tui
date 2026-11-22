@@ -78,5 +78,42 @@ class AlertsTest(unittest.TestCase):
         self.assertIn("fingerprint", notify.call_args.args[1].lower())
 
 
+class DesktopNotifyTest(unittest.TestCase):
+    def test_dispatch_by_os(self):
+        with mock.patch.object(alerts, "_notify_windows", return_value=True) as win, \
+                mock.patch.object(alerts, "_notify_macos", return_value=True) as mac, \
+                mock.patch.object(alerts, "_notify_linux", return_value=True) as lin:
+            alerts.desktop_notify("t", "m", system="Windows")
+            alerts.desktop_notify("t", "m", system="Darwin")
+            alerts.desktop_notify("t", "m", system="Linux")
+        win.assert_called_once()
+        mac.assert_called_once()
+        lin.assert_called_once()
+
+    def test_hint_differs_per_os(self):
+        hints = {alerts.notify_hint(name) for name in ("Windows", "Darwin", "Linux")}
+        self.assertEqual(len(hints), 3)
+
+    def test_macos_passes_text_as_arguments(self):
+        with mock.patch.object(alerts.shutil, "which", return_value="/usr/bin/osascript"), \
+                mock.patch.object(alerts, "_run", return_value=True) as run:
+            self.assertTrue(alerts._notify_macos("t", "m", "normal"))
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "osascript")
+        self.assertEqual(args[-2:], ["t", "m"])
+
+    def test_macos_without_osascript_fails(self):
+        with mock.patch.object(alerts.shutil, "which", return_value=None):
+            self.assertFalse(alerts._notify_macos("t", "m", "normal"))
+
+    def test_windows_passes_text_via_env(self):
+        with mock.patch.object(alerts.shutil, "which", return_value="powershell"), \
+                mock.patch.object(alerts, "_run", return_value=True) as run:
+            alerts._notify_windows("Заголовок", "Текст", "normal")
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["RB_TUI_NOTIFY_TITLE"], "Заголовок")
+        self.assertEqual(env["RB_TUI_NOTIFY_MESSAGE"], "Текст")
+
+
 if __name__ == "__main__":
     unittest.main()

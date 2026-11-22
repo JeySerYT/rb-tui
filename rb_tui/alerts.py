@@ -2,6 +2,7 @@
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -16,27 +17,88 @@ ALERTS_STATE = os.path.join(CACHE, "alerts-state.json")
 DEDUP_HOURS = 12
 
 
-def desktop_notify(title, message, urgency="normal"):
-    """Desktop-уведомление через notify-send. Возвращает True при успехе."""
-    if shutil.which("notify-send") is None:
-        return False
+def _run(cmd, timeout=5, env=None):
     try:
-        p = subprocess.run(
-            ["notify-send", "--urgency", urgency, title, message],
-            timeout=5, capture_output=True,
-        )
+        p = subprocess.run(cmd, timeout=timeout, capture_output=True, env=env)
         return p.returncode == 0
     except Exception:
         return False
 
 
+def _notify_linux(title, message, urgency):
+    if shutil.which("notify-send") is None:
+        return False
+    return _run(["notify-send", "--urgency", urgency, title, message])
+
+
+def _notify_macos(title, message, urgency):
+    if shutil.which("osascript") is None:
+        return False
+    # Аргументы через `--`: не нужно экранировать кавычки в тексте.
+    script = (
+        "on run argv\n"
+        "display notification (item 2 of argv) with title (item 1 of argv)\n"
+        "end run"
+    )
+    return _run(["osascript", "-e", script, "--", title, message])
+
+
+_TOAST_SCRIPT = (
+    "$ErrorActionPreference = 'Stop'\n"
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
+    "ContentType = WindowsRuntime] | Out-Null\n"
+    "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, "
+    "ContentType = WindowsRuntime] | Out-Null\n"
+    "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
+    "$title = [System.Security.SecurityElement]::Escape($env:RB_TUI_NOTIFY_TITLE)\n"
+    "$text = [System.Security.SecurityElement]::Escape($env:RB_TUI_NOTIFY_MESSAGE)\n"
+    "$xml.LoadXml('<toast><visual><binding template=\"ToastText02\"><text id=\"1\">' + "
+    "$title + '</text><text id=\"2\">' + $text + '</text></binding></visual></toast>')\n"
+    "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml\n"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+    "'rb-tui').Show($toast)\n"
+)
+
+
+def _notify_windows(title, message, urgency):
+    exe = shutil.which("powershell") or shutil.which("pwsh")
+    if not exe:
+        return False
+    env = dict(os.environ)
+    env["RB_TUI_NOTIFY_TITLE"] = title
+    env["RB_TUI_NOTIFY_MESSAGE"] = message
+    return _run(
+        [exe, "-NoProfile", "-NonInteractive", "-Command", _TOAST_SCRIPT],
+        timeout=10, env=env,
+    )
+
+
+def desktop_notify(title, message, urgency="normal", system=None):
+    """Desktop-уведомление средствами текущей ОС. True при успехе."""
+    name = (system or platform.system()).lower()
+    if name == "windows":
+        return _notify_windows(title, message, urgency)
+    if name == "darwin":
+        return _notify_macos(title, message, urgency)
+    return _notify_linux(title, message, urgency)
+
+
+def notify_hint(system=None):
+    """Что проверить, если уведомление не ушло."""
+    name = (system or platform.system()).lower()
+    if name == "windows":
+        return "проверь уведомления Windows и доступность PowerShell"
+    if name == "darwin":
+        return "разреши уведомления для Терминала в Настройках macOS"
+    return "проверь notify-send и права на DBus"
+
+
 def test_notify():
     """Диагностика уведомлений для --test-notify."""
-    ok = desktop_notify(
+    return desktop_notify(
         "rb-tui: проверка уведомлений",
         "Если ты это видишь — desktop-уведомления работают.",
     )
-    return ok
 
 
 def notify_new_models(new_models):
