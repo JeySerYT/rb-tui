@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Скачать последнюю версию
+    url: https://github.com/JeySerYT/rb-tui/releases
+    about: Готовые бинарники для Linux, macOS и Windows
+  - name: Сообщить об уязвимости
+    url: https://github.com/JeySerYT/rb-tui/security/advisories/new
+    about: Приватный отчёт, не публичный Issue

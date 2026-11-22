@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="88" alt="rb-tui">
+</p>
+
 # rb-tui
 
 [![tests](https://github.com/JeySerYT/rb-tui/actions/workflows/tests.yml/badge.svg)](https://github.com/JeySerYT/rb-tui/actions/workflows/tests.yml)
