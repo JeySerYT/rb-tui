@@ -32,6 +32,9 @@ _SECRET_PATTERNS = (
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}"), "sk-<скрыто>"),
     (re.compile(r"(?i)https?://[^\s\"'<>]*(?:token|secret|webhook)[^\s\"'<>]*"),
      "<ссылка с секретом скрыта>"),
+    # У Slack токен лежит в пути, но в URL нет слов token/secret/webhook.
+    (re.compile(r"(?i)https?://[^\s\"'<>]*(?:hooks\.slack\.com|api\.telegram\.org/bot)[^\s\"'<>]*"),
+     "<ссылка с секретом скрыта>"),
 )
 
 _installed = False
@@ -60,6 +63,24 @@ def _short(value, limit=200):
     return sanitize(value)[:limit]
 
 
+def _masked_argv(argv):
+    """Не сохранять в отчёте значение --webhook: в нём может быть токен."""
+    out = []
+    mask_next = False
+    for arg in argv:
+        if mask_next:
+            out.append("<скрыто>")
+            mask_next = False
+        elif arg == "--webhook":
+            out.append(arg)
+            mask_next = True
+        elif arg.startswith("--webhook="):
+            out.append("--webhook=<скрыто>")
+        else:
+            out.append(arg)
+    return out
+
+
 # ── диагностика ──
 
 def diag_block(exc_type=None, exc=None, tb=None):
@@ -81,7 +102,7 @@ def diag_block(exc_type=None, exc=None, tb=None):
         f"кеш: {utils.CACHE}",
         f"stdout: {stdout}, tty={tty}",
         f"локаль: {locale.getpreferredencoding(False)}",
-        f"команда: {' '.join(sys.argv)}",
+        f"команда: {' '.join(_masked_argv(sys.argv))}",
     ]
     if exc_type is not None:
         lines.append(f"исключение: {exc_type.__name__}: {exc}")
@@ -145,7 +166,7 @@ def build_url(title, body):
 
 
 def report_path(stamp=None):
-    stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     return os.path.join(CACHE, f"{REPORT_PREFIX}{stamp}.log")
 
 
@@ -153,10 +174,6 @@ def write_report(body):
     """Сохранить отчёт в кеш и оставить три последних."""
     os.makedirs(CACHE, exist_ok=True)
     path = report_path()
-    suffix = 1
-    while os.path.exists(path):
-        suffix += 1
-        path = report_path(datetime.now().strftime("%Y%m%d-%H%M%S") + f"-{suffix}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(body.rstrip() + "\n")
     _prune_reports()

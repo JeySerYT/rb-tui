@@ -118,7 +118,7 @@ def prune_history(days=90):
                 try:
                     item = json.loads(line)
                     ts = datetime.strptime(item.get("ts", ""), "%Y-%m-%d %H:%M")
-                except ValueError:
+                except (ValueError, TypeError):
                     removed += 1
                     continue
                 if ts.timestamp() >= cutoff:

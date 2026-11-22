@@ -203,10 +203,10 @@ def print_stats(metrics=None):
     print(bold("  СТАТИСТИКА"))
     print(f"  {dim('моделей всего:')}    {total}")
     print(f"  {g('stable:')}         {stable_n}   {y('unstable:')} {unstable_n}   {r('dead:')} {dead_n}   {dim('unknown:')} {unknown_n}")
-    print(f"  {dim('средний TTFT:')}    {avg_ttft_all}s" if avg_ttft_all else "")
-    print(f"  {dim('минимальный TTFT:')} {min_ttft_all}s" if min_ttft_all else "")
-    print(f"  {dim('средний TTS:')}     {avg_tts_all}s" if avg_tts_all else "")
-    print(f"  {dim('средний TPS:')}     {avg_tps_all} tok/s" if avg_tps_all else "")
+    print(f"  {dim('средний TTFT:')}    {avg_ttft_all}s" if avg_ttft_all is not None else "")
+    print(f"  {dim('минимальный TTFT:')} {min_ttft_all}s" if min_ttft_all is not None else "")
+    print(f"  {dim('средний TTS:')}     {avg_tts_all}s" if avg_tts_all is not None else "")
+    print(f"  {dim('средний TPS:')}     {avg_tps_all} tok/s" if avg_tps_all is not None else "")
     print(f"  {dim('health score:')}    {g(str(hs)) if hs >= 70 else (y(str(hs)) if hs >= 40 else r(str(hs)))}/100")
     print()
 
@@ -226,11 +226,11 @@ def print_info(model_id, metrics=None):
     print(f"  {dim('статус:')}         {g('stable') if st['status'] == 'stable' else (y('unstable') if st['status'] == 'unstable' else r('dead'))}")
     print(f"  {dim('проверок:')}       {st['total']} ({g(str(st['ok']))} OK / {r(str(st['err']))} ERR / {y(str(st['no']))} NO)")
     print(f"  {dim('success rate:')}   {g(str(st['success_rate']) + '%') if st['success_rate'] >= 80 else y(str(st['success_rate']) + '%')}")
-    print(f"  {dim('средний TTFT:')}   {st['avg_ttft']}s" if st['avg_ttft'] else "")
-    print(f"  {dim('мин TTFT:')}       {st['min_ttft']}s" if st['min_ttft'] else "")
-    print(f"  {dim('макс TTFT:')}      {st['max_ttft']}s" if st['max_ttft'] else "")
-    print(f"  {dim('средний TTS:')}    {st['avg_tts']}s" if st.get('avg_tts') else "")
-    print(f"  {dim('средний TPS:')}    {st['avg_tps']} tok/s" if st.get('avg_tps') else "")
+    print(f"  {dim('средний TTFT:')}   {st['avg_ttft']}s" if st['avg_ttft'] is not None else "")
+    print(f"  {dim('мин TTFT:')}       {st['min_ttft']}s" if st['min_ttft'] is not None else "")
+    print(f"  {dim('макс TTFT:')}      {st['max_ttft']}s" if st['max_ttft'] is not None else "")
+    print(f"  {dim('средний TTS:')}    {st['avg_tts']}s" if st.get('avg_tts') is not None else "")
+    print(f"  {dim('средний TPS:')}    {st['avg_tps']} tok/s" if st.get('avg_tps') is not None else "")
     if st.get("min_tps") is not None:
         print(f"  {dim('TPS min/max:')}   {st['min_tps']} / {st['max_tps']} tok/s")
     print(f"  {dim('первый тест:')}    {st['first_seen']}")
@@ -462,6 +462,6 @@ def print_filtered(models, tag=None, metrics=None):
         st = model_status(metrics, mid)
         st_badge = g("stable") if st == "stable" else (y("unstable") if st == "unstable" else (r("dead") if st == "dead" else dim("?")))
         avg_t = avg_ttft(metrics, mid)
-        ttft_s = f"{avg_t:.3f}s" if avg_t else "-"
+        ttft_s = f"{avg_t:.3f}s" if avg_t is not None else "-"
         tag_s = f"[{bl(model_tag)}]" if model_tag else ""
         print(f"  {mid:<34} {st_badge:<9} {ttft_s:<8} {tag_s}")

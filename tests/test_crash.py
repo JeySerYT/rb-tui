@@ -26,6 +26,18 @@ class SanitizeTest(unittest.TestCase):
         text = "https://discord.com/api/webhooks/123/SECRET"
         self.assertNotIn("SECRET", crash.sanitize(text))
 
+    def test_hides_slack_webhook_url(self):
+        text = "https://hooks.slack.com/services/T00000000/B00000000/SECRET"
+        self.assertNotIn("SECRET", crash.sanitize(text))
+
+    def test_diag_masks_webhook_argument(self):
+        token = "abcdef1234567890"
+        url = "https://example.com/h/" + token
+        with mock.patch.object(sys, "argv", ["rb-tui", "--webhook", url]):
+            self.assertNotIn(token, crash.diag_block())
+        with mock.patch.object(sys, "argv", ["rb-tui", "--webhook=" + url]):
+            self.assertNotIn(token, crash.diag_block())
+
     def test_replaces_home_directory(self):
         home = os.path.expanduser("~")
         if home == "/":

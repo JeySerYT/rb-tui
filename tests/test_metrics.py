@@ -159,6 +159,16 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(len(metrics.load_history()), 1)
         self.assertEqual(len(metrics.load_metrics()["m"]), 1)
 
+    def test_prune_history_skips_null_timestamp(self):
+        lines = [
+            {"ts": None, "model": "m", "status": "OK"},
+            {"ts": "2999-01-01 00:00", "model": "m", "status": "OK"},
+        ]
+        with open(self.log, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        kept, removed = metrics.prune_history(days=1)
+        self.assertEqual((kept, removed), (1, 1))
+
 
 class AnomaliesTest(unittest.TestCase):
     def _ok(self, **kw):

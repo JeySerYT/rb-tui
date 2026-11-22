@@ -8,7 +8,7 @@ from datetime import datetime
 from rb_tui import __version__
 from rb_tui import console, crash, paths
 from rb_tui.utils import (
-    CONFIG, CACHE, INTERACTIVE, g, r, y, bl, cy, dim, bold,
+    CONFIG, INTERACTIVE, g, r, y, bl, cy, dim, bold,
     fzf_multi, prune_backups, backup_config, load_tags, set_tag,
 )
 from rb_tui.config import (
@@ -33,7 +33,7 @@ from rb_tui.render import (
 )
 from rb_tui.sync import (
     auto_sync, save_catalog, load_prev_catalog, load_catalog_owned,
-    auto_cleanup, auto_rollback,
+    auto_cleanup, auto_rollback, log_auto,
 )
 from rb_tui.alerts import (
     desktop_notify, notify_new_models, notify_stable_to_dead, notify_anomalies,
@@ -530,9 +530,7 @@ def main():
         auto_cleanup(days=30)
 
         # Сводка в лог
-        with open(os.path.join(CACHE, "auto-sync.log"), "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-                    f"sync: тест {ok_count}/{len(results)} живых\n")
+        log_auto(f"sync: тест {ok_count}/{len(results)} живых")
         return
 
     # ── --report / --test ──
@@ -680,7 +678,7 @@ def _cmd_fuzzy(query, metrics):
     print(dim("  " + "─" * 65))
     for mid, st, avg_t, rate in sorted(results, key=lambda x: avg_ttft(metrics, x[0]) or 999):
         st_badge = g("stable") if st == "stable" else (y("unstable") if st == "unstable" else (r("dead") if st == "dead" else dim("?")))
-        ttft_s = f"{avg_t:.3f}s" if avg_t else "-"
+        ttft_s = f"{avg_t:.3f}s" if avg_t is not None else "-"
         rate_s = f"{rate}%" if rate is not None else "-"
         print(f"  {mid:<34} {st_badge:<9} {ttft_s:<8} {rate_s:<8}")
 
@@ -695,14 +693,9 @@ def _cmd_fuzzy(query, metrics):
 
 def _cmd_bench(base, key, model_id):
     """Бенчмарк модели на нескольких задачах (стриминговый замер)."""
-    prompts = [
-        "Write a Python function to merge two sorted lists.",
-        "Explain the difference between TCP and UDP in simple terms.",
-        "Write a short poem about artificial intelligence.",
-    ]
     print(bold(f"  БЕНЧМАРК: {model_id}"))
-    print(dim(f"  тестирую на {len(prompts)} промптах..."))
-    rows = bench_model(base, key, model_id, prompts=prompts)
+    rows = bench_model(base, key, model_id)
+    print(dim(f"  проверено промптов: {len(rows)}"))
     print_bench_results(rows, model_id)
 
 

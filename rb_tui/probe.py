@@ -126,12 +126,12 @@ def stream_request(base, key, model, prompt, max_tokens=200, stream=True, timeou
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             ctype = resp.headers.get("Content-Type", "")
             if "text/event-stream" in ctype:
-                ttft, tts, total, tokens, chars, content = _read_stream(resp, start)
+                ttft, tts, total, tokens, chars, content, fp = _read_stream(resp, start)
                 if ttft is None:
                     return _result("NO", total=total, msg="пустой стрим")
                 return _result(
                     "OK", ttft=ttft, tts=tts, total=total, tokens=tokens,
-                    chars=chars, content=content,
+                    chars=chars, content=content, fp=fp,
                 )
 
             raw = resp.read()
@@ -197,7 +197,7 @@ def effective_tps(r):
 
 
 def _read_stream(resp, start):
-    """Разобрать SSE-поток. Возвращает (ttft, tts, total, tokens, chars, text).
+    """Разобрать SSE-поток. Возвращает (ttft, tts, total, tokens, chars, text, fp).
 
     tokens — число контент-чанков: оценка именно сгенерированных токенов,
     без токенов промпта (usage в стриме обычно отсутствует).
@@ -207,6 +207,7 @@ def _read_stream(resp, start):
     chunks = 0
     usage_tokens = 0
     parts = []
+    fp = ""
 
     for raw in resp:
         line = raw.decode("utf-8", "replace").strip()
@@ -219,6 +220,9 @@ def _read_stream(resp, start):
             event = json.loads(data)
         except ValueError:
             continue
+
+        if not fp:
+            fp = event.get("system_fingerprint") or ""
 
         usage = event.get("usage")
         if usage:
@@ -242,7 +246,7 @@ def _read_stream(resp, start):
 
     total = round(time.monotonic() - start, 3)
     content = "".join(parts)
-    return first, second, total, chunks or usage_tokens, len(content), content
+    return first, second, total, chunks or usage_tokens, len(content), content, fp
 
 
 def _call_or_throttle(base, key, model, prompt, max_tokens, timeout=60):

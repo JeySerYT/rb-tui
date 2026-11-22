@@ -84,7 +84,7 @@ if download "$tmp/$asset.sha256" "$base/$asset.sha256" 2>/dev/null; then
         die "контрольная сумма не совпала"
     fi
 else
-    say "==> контрольная сумма недоступна, пропускаю проверку"
+    die "нет файла контрольной суммы $asset.sha256 — установка отменена"
 fi
 
 tar -xzf "$tmp/$asset" -C "$tmp" rb-tui || die "архив повреждён"

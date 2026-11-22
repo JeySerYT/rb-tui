@@ -199,7 +199,7 @@ def notify_anomalies(metrics=None, dedup_hours=DEDUP_HOURS):
         elif a["type"] == "success_drop":
             desktop_notify(
                 f"⚠ ReformBoss: {a['model']}",
-                f"Success rate упал ({a['older_rate']}% → {a['recent_rate']}%)",
+                f"Success rate упал ({a['older_rate'] * 100}% → {a['recent_rate'] * 100}%)",
                 urgency="normal",
             )
         elif a["type"] == "fingerprint_change":
@@ -261,7 +261,9 @@ def build_webhook_payload(metrics, fmt="slack"):
         elif a["type"] == "tts_spike":
             lines.append(f"⚠ {a['model']}: TTS ×{a['ratio']}")
         elif a["type"] == "success_drop":
-            lines.append(f"⚠ {a['model']}: success {a['older_rate']} → {a['recent_rate']}")
+            lines.append(
+                f"⚠ {a['model']}: success {a['older_rate'] * 100}% → {a['recent_rate'] * 100}%"
+            )
     text = "\n".join(lines)
 
     if fmt == "discord":

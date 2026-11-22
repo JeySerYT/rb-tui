@@ -67,6 +67,16 @@ class AlertsTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(len(calls), 3)
 
+    def test_success_drop_uses_percentages(self):
+        data = {"m": [ok_entry() for _ in range(5)]
+                      + [ok_entry(status="ERR") for _ in range(5)]}
+        text = alerts.build_webhook_payload(data, fmt="generic")["text"]
+        self.assertIn("success 100.0% → 0.0%", text)
+
+        with mock.patch.object(alerts, "desktop_notify") as notify:
+            alerts.notify_anomalies(data)
+        self.assertIn("100.0% → 0.0%", notify.call_args.args[1])
+
     def test_fingerprint_anomaly_has_message(self):
         data = {"m": [
             ok_entry(fp="a"), ok_entry(fp="a"),

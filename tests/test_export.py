@@ -57,6 +57,28 @@ class ExportTest(unittest.TestCase):
         self.assertIn("<!DOCTYPE html>", html)
         self.assertIn("model-x", html)
 
+    def test_html_escapes_model_id(self):
+        evil = "<img src=x onerror=alert(1)>"
+        with mock.patch.object(export, "load_metrics",
+                               return_value={evil: SAMPLE["model-x"]}):
+            html = export.export_html()
+        self.assertNotIn(evil, html)
+        self.assertIn("&lt;img", html)
+
+    def test_csv_quotes_commas(self):
+        mid = "vendor,model"
+        with mock.patch.object(export, "load_metrics",
+                               return_value={mid: SAMPLE["model-x"]}):
+            text = export.export_csv()
+        self.assertIn('"vendor,model"', text.splitlines()[1])
+
+    def test_csv_neutralizes_formula_prefix(self):
+        mid = "=HYPERLINK(1)"
+        with mock.patch.object(export, "load_metrics",
+                               return_value={mid: SAMPLE["model-x"]}):
+            text = export.export_csv()
+        self.assertIn("'=HYPERLINK(1)", text.splitlines()[1])
+
     def test_html_to_file(self):
         path = os.path.join(self.tmp.name, "out.html")
         self.assertEqual(export.export_html(path), path)

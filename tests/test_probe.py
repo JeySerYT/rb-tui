@@ -135,7 +135,7 @@ class ReadStreamTest(unittest.TestCase):
         ]
         clock = iter([10.0, 10.2, 10.9])
         with mock.patch.object(probe.time, "monotonic", side_effect=lambda: next(clock)):
-            ttft, tts, total, tokens, chars, content = probe._read_stream(lines, 0.0)
+            ttft, tts, total, tokens, chars, content, fp = probe._read_stream(lines, 0.0)
 
         self.assertEqual(ttft, 10.0)
         self.assertEqual(tts, 10.2)
@@ -143,6 +143,35 @@ class ReadStreamTest(unittest.TestCase):
         self.assertEqual(tokens, 2)  # контент-чанки, без usage промпта
         self.assertEqual(chars, 2)
         self.assertEqual(content, "ok")
+        self.assertEqual(fp, "")
+
+    def test_extracts_system_fingerprint(self):
+        lines = [
+            b'data: {"choices":[{"delta":{"content":"o"}}],"system_fingerprint":"fp_1"}\n',
+            b"data: [DONE]\n",
+        ]
+        self.assertEqual(probe._read_stream(lines, 0.0)[-1], "fp_1")
+
+    def test_stream_request_keeps_fingerprint(self):
+        class FakeResponse:
+            headers = {"Content-Type": "text/event-stream"}
+
+            def __iter__(self):
+                event = {"choices": [{"delta": {"content": "1"}}],
+                         "system_fingerprint": "fp_1"}
+                yield ("data: " + json.dumps(event) + "\n").encode()
+                yield b"data: [DONE]\n"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with mock.patch.object(probe.urllib.request, "urlopen",
+                               return_value=FakeResponse()):
+            result = probe.stream_request("http://x", "k", "m", "go")
+        self.assertEqual(result["fp"], "fp_1")
 
     def test_falls_back_when_stream_unsupported(self):
         class FakeResponse:

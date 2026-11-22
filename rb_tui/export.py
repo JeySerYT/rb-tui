@@ -1,8 +1,11 @@
 """Экспорт метрик: JSON, HTML, CSV."""
 
+import csv
+import io
 import json
 import os
 from datetime import datetime
+from html import escape
 
 from rb_tui import __version__
 from rb_tui.metrics import (
@@ -41,19 +44,26 @@ def export_json(path=None):
 def export_csv(path=None):
     """Экспорт метрик в CSV."""
     metrics = load_metrics()
-    lines = ["model,status,success_rate,avg_ttft,avg_tts,avg_tps,min_ttft,max_ttft,total_checks,ok,err,no"]
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow([
+        "model", "status", "success_rate", "avg_ttft", "avg_tts", "avg_tps",
+        "min_ttft", "max_ttft", "total_checks", "ok", "err", "no",
+    ])
     for mid in sorted(metrics.keys()):
         s = full_stats(metrics, mid)
         if not s:
             continue
-        lines.append(
-            f"{mid},{s['status']},{s['success_rate']},{s['avg_ttft'] or ''},"
-            f"{s['avg_tts'] or ''},{s['avg_tps'] or ''},"
-            f"{s['min_ttft'] or ''},{s['max_ttft'] or ''},"
-            f"{s['total']},{s['ok']},{s['err']},{s['no']}"
-        )
+        # Excel исполняет ячейки, начинающиеся с формулы, как выражение.
+        safe_mid = "'" + mid if mid[:1] in ("=", "+", "-", "@") else mid
+        writer.writerow([
+            safe_mid, s["status"], s["success_rate"], s["avg_ttft"] or "",
+            s["avg_tts"] or "", s["avg_tps"] or "",
+            s["min_ttft"] or "", s["max_ttft"] or "",
+            s["total"], s["ok"], s["err"], s["no"],
+        ])
 
-    csv_text = "\n".join(lines)
+    csv_text = buf.getvalue()
     if path:
         with open(path, "w", encoding="utf-8") as f:
             f.write(csv_text)
@@ -86,16 +96,18 @@ def export_html(path=None):
         avg_s = s["avg_tts"] or "—"
         avg_p = s["avg_tps"] or "—"
 
+        first = escape(str(s["first_seen"]))
+        last = escape(str(s["last_seen"]))
         rows.append(f"""
         <tr>
-            <td><code>{mid}</code></td>
-            <td><span class="badge" style="background:{status_color}">{s["status"]}</span></td>
+            <td><code>{escape(mid)}</code></td>
+            <td><span class="badge" style="background:{status_color}">{escape(s["status"])}</span></td>
             <td>{s["success_rate"]}%</td>
             <td>{avg_t}s{ttft_bar}</td>
             <td>{avg_s}s</td>
             <td>{avg_p}</td>
             <td>{s["total"]} ({s["ok"]} OK / {s["err"]} ERR)</td>
-            <td title="first: {s["first_seen"]}, last: {s["last_seen"]}">{s["first_seen"]}</td>
+            <td title="first: {first}, last: {last}">{first}</td>
         </tr>""")
 
     html = f"""<!DOCTYPE html>
