@@ -19,16 +19,18 @@ irm https://github.com/JeySerYT/rb-tui/releases/latest/download/install.ps1 | ie
 ```
 
 Оба скрипта скачивают готовый бинарник из GitHub Releases, проверяют sha256
-и добавляют его в `PATH`.
+(`sha256sum` или `shasum -a 256` на macOS) и добавляют его в `PATH`.
 
 - Linux/macOS: ставится в `~/.local/bin`, другой каталог —
   `RB_TUI_INSTALL_DIR=/usr/local/bin sh install.sh`
 - Windows: ставится в `%LOCALAPPDATA%\rb-tui\bin`, другой каталог —
   `$env:RB_TUI_INSTALL_DIR="D:\tools"; irm ... | iex`
-- конкретная версия: `RB_TUI_VERSION=0.5.0-beta.1`
+- конкретная версия: `RB_TUI_VERSION=0.5.0-beta.2`
 - если репозиторий называется иначе — `RB_TUI_REPO=owner/repo`.
 
 После установки на Windows перезапусти терминал, чтобы обновился `PATH`.
+На macOS установщик распознаёт Apple Silicon даже под Rosetta и подсказывает
+строку для `~/.zshrc`.
 
 ### 2. Готовый бинарник вручную
 
@@ -36,13 +38,24 @@ irm https://github.com/JeySerYT/rb-tui/releases/latest/download/install.ps1 | ie
 свою систему:
 
 `rb-tui-linux-x86_64.tar.gz`, `rb-tui-linux-arm64.tar.gz`,
-`rb-tui-darwin-arm64.tar.gz`, `rb-tui-windows-x86_64.zip`.
+`rb-tui-darwin-arm64.tar.gz`, `rb-tui-darwin-x86_64.tar.gz`,
+`rb-tui-windows-x86_64.zip`.
+
+Windows на ARM64 использует `windows-x86_64.zip` через эмуляцию x64 — отдельной
+сборки нет, `--update` подставляет её сам.
 
 Распаковать, положить `rb-tui` (или `rb-tui.exe`) в любой каталог из `PATH`.
 
 `rb-tui --update` скачивает новый релиз, сверяет sha256 и заменяет файл.
 На Windows замена применяется сразу после выхода — запускать установщик
 вручную не нужно.
+
+> [!NOTE]
+> Бинарники не подписаны. При первом запуске Windows может показать
+> SmartScreen — «Подробнее» → «Выполнить в любом случае»; установщик снимает
+> Mark-of-the-Web сам. На macOS архив, скачанный вручную, получает карантин:
+> `xattr -d com.apple.quarantine ./rb-tui`. Установка через `curl | sh` и
+> `irm | iex` карантин не ставит.
 
 ### 3. Через uv (Python)
 
@@ -69,7 +82,8 @@ rb-tui --update         # скачать, проверить sha256 и заме�
 
 При каждом запуске бинарник сам проверяет новую версию и пишет
 `↑ доступна новая версия` — сеть дёргается не чаще раза в час, результат
-кешируется в `~/.config/reformboss-tui/update-check.json`. Отключить проверку:
+(в том числе неудачная проверка) кешируется в `~/.config/reformboss-tui`
+на Linux/macOS или `%LOCALAPPDATA%\rb-tui` на Windows. Отключить проверку:
 `RB_TUI_NO_UPDATE_CHECK=1`, изменить интервал: `RB_TUI_UPDATE_TTL` в секундах
 (`0` — проверять каждый запуск).
 
@@ -171,6 +185,9 @@ JSON-эндпоинты: `/health` (версия и uptime), `/api/view`, `/api/
 | Команда | Описание |
 |---|---|
 | `rb-tui --config-check` | Проверить конфиг: JSONC, ключ, права, baseURL, каталог |
+| `rb-tui --config <PATH>` | Указать конфиг вручную (иначе ищется по ОС) |
+| `rb-tui --diag` | Диагностика для отчёта об ошибке (без сети) |
+| `rb-tui --report-bug [FILE]` | Открыть Issue с сохранённым отчётом о падении |
 | `rb-tui --diff` | Diff с последним бэкапом |
 | `rb-tui --prune-backups [N]` | Удалить бэкапы старше N дней |
 | `rb-tui --prune-metrics [N]` | Удалить историю метрик старше N дней |
@@ -188,8 +205,55 @@ JSON-эндпоинты: `/health` (версия и uptime), `/api/view`, `/api/
 - Об аномалиях TTFT, TTS, падении TPS и смене fingerprint
 
 Повторные алерты об одной и той же аномалии подавляются на 12 часов
-(для dead-моделей — на 24 часа). `--test-notify` проверяет, что
-`notify-send` и DBus работают.
+(для dead-моделей — на 24 часа). Уведомления отправляются средствами текущей
+ОС: `notify-send` (Linux), `osascript` (macOS), toast через PowerShell
+(Windows). `--test-notify` подсказывает, что проверить, если не сработало.
+
+## Где rb-tui ищет конфиг
+
+Путь не зашит под Linux: rb-tui ищет глобальный конфиг OpenCode так же, как
+сам OpenCode.
+
+| ОС | Каталог | Кеш rb-tui |
+|---|---|---|
+| Linux | `$XDG_CONFIG_HOME/opencode`, затем `~/.config/opencode`, `/etc/opencode` | `~/.config/reformboss-tui` |
+| macOS | `~/Library/Application Support/opencode`, затем `~/.config/opencode`, `/Library/Application Support/opencode` | `~/.config/reformboss-tui` |
+| Windows | `%APPDATA%\opencode`, затем `~/.config/opencode`, `%ProgramData%\opencode` | `%LOCALAPPDATA%\rb-tui` |
+
+Внутри каталога проверяются оба имени — `opencode.jsonc` и `opencode.json`
+(`.jsonc` важнее). Если провайдер `reformboss` нашёлся в другом файле из
+списка, выигрывает он: иначе правки ушли бы в пустой конфиг.
+
+Переопределение: `rb-tui --config <файл>` или переменная `RB_TUI_CONFIG`.
+Если конфиг не найден, rb-tui печатает все проверенные пути и подсказывает
+флаг. Каталог можно задать и через `OPENCODE_CONFIG_DIR`, как это делает
+сам OpenCode.
+
+## Если rb-tui упал
+
+Любая непредвиденная ошибка превращается в отчёт:
+
+```text
+непредвиденная ошибка: UnicodeEncodeError: ...
+отчёт: %LOCALAPPDATA%\rb-tui\crash-20261122-183012.log
+
+[Enter] открыть Issue на GitHub с заполненным отчётом
+[v]     показать отчёт
+[n]     выйти без отчёта
+```
+
+Enter открывает в браузере форму `issues/new` с уже заполненными полями
+(браузер, а не токен в бинарнике: публичный токен вытащат и забанят).
+В отчёт попадают версия, ОС, Python, путь к конфигу, кодировка вывода и хвост
+traceback; ключи, `Bearer`, `sk-…`, URL вебхуков и домашний путь вычищаются.
+Хранятся три последних отчёта.
+
+- `RB_TUI_NO_REPORT_PROMPT=1` — не задавать вопрос, только напечатать ссылку.
+- `RB_TUI_NO_CRASH_HOOK=1` — выключить перехват целиком.
+- В пайпах, CI и OpenCode stdin не терминал, поэтому ничего не спрашивается.
+- Окно на Windows, запущенное двойным кликом, не закрывается до Enter.
+- `rb-tui --diag` печатает ту же диагностику без сети и без конфига;
+  `rb-tui --report-bug` открывает Issue по последнему отчёту.
 
 ## Бережное тестирование (лимиты API)
 
@@ -250,11 +314,14 @@ rb-tui/
 ├── packaging/rb-tui.spec   # сборка standalone-бинарника (PyInstaller)
 ├── scripts/build-binary.sh # локальная сборка бинарника
 ├── scripts/release_notes.py # заметки релиза из CHANGELOG.md
-├── .github/workflows/      # CI: тесты + релизы под 4 платформы
+├── .github/workflows/      # CI: тесты + релизы под 5 платформ
 ├── tests/                  # автотесты (unittest, без сети)
 ├── rb_tui/
 │   ├── cli.py              # CLI-диспетчер (argparse)
+│   ├── paths.py            # Конфиг и кеш OpenCode на разных ОС
 │   ├── config.py           # opencode.json (JSONC, правки, diff)
+│   ├── console.py          # UTF-8, ANSI и пауза для консоли Windows
+│   ├── crash.py            # Отчёт о падении → Issue по шаблону
 │   ├── api.py              # ReformBoss API
 │   ├── probe.py            # Тестирование (TTFT, speed, compare)
 │   ├── guard.py            # Защита от лимитов: бюджет, ротация, cooldown

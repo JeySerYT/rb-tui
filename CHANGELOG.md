@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+Windows и macOS: поиск конфига, консоль, установка и отчёты об ошибках.
+
+**Конфиг**
+
+- rb-tui ищет глобальный конфиг OpenCode так же, как сам OpenCode:
+  `%APPDATA%\opencode` на Windows, `~/Library/Application Support/opencode`
+  на macOS, XDG-каталог на Linux, затем старый `~/.config/opencode`
+  и машинный каталог
+- Поддержан `opencode.jsonc` (он важнее `.json`); если провайдер `reformboss`
+  нашёлся в другом файле из списка, выигрывает он
+- `--config <PATH>` и `RB_TUI_CONFIG` переопределяют путь; если конфиг
+  не найден, печатается список проверенных путей
+- Кеш на Windows переехал в `%LOCALAPPDATA%\rb-tui`
+
+**Windows и macOS**
+
+- Вывод переводится в UTF-8 с `errors="replace"` — эмодзи больше не роняют
+  запуск в cp1251 при перенаправлении вывода
+- ANSI включается через `SetConsoleMode`, а не `os.system("")`
+- Проверки прав `chmod` выполняются только на POSIX
+- `os.replace` повторяется, если файл занят антивирусом или вторым экземпляром
+- Ключ API читается как `utf-8-sig`: BOM из Блокнота больше не даёт 401
+- Без `fzf` выбор моделей работает по номерам (`1,3,5`, `2-4`, `all`)
+- Уведомления: `notify-send`, `osascript`, toast через PowerShell
+- Ошибки не закрывают окно мгновенно: Windows-бинарник ждёт Enter
+
+**Отчёты об ошибках**
+
+- Необработанные исключения (включая потоки) дают отчёт в кеш и открывают
+  форму Issue на GitHub с заполненным телом; ключи, токены и домашний путь
+  вычищаются
+- Шаблон `.github/ISSUE_TEMPLATE/bug_report.md`, команды `--diag` и
+  `--report-bug`, переменные `RB_TUI_NO_REPORT_PROMPT` и `RB_TUI_NO_CRASH_HOOK`
+
+**Сборки и установка**
+
+- Intel Mac: сборка `rb-tui-darwin-x86_64.tar.gz` на `macos-15-intel`
+- Windows ARM64 обновляется x64-сборкой вместо несуществующего архива
+- `install.sh`: `shasum -a 256`, определение Rosetta, подсказка для `~/.zshrc`
+- `install.ps1`: снимает Mark-of-the-Web и предупреждает про SmartScreen
+- CI: тесты на Ubuntu 3.10/3.12/3.14, Windows и macOS; smoke `--version`
+  и `--diag` для каждого собранного бинарника
+- Неудачная проверка обновлений кешируется: офлайн-запуск не ждёт таймаут
+  каждый раз
+
 ## 0.5.0-beta.2 (2026-11-22)
 
 Автопроверка обновлений и установка для Windows одной командой.
