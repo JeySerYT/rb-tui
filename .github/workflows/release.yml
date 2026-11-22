@@ -33,29 +33,31 @@ jobs:
         include:
           - os: ubuntu-22.04
             asset: linux-x86_64
-            system_python: true
+            python_setup: system
           - os: ubuntu-24.04-arm
             asset: linux-arm64
-            system_python: false
+            python_setup: actions
           - os: macos-15
             asset: darwin-arm64
-            system_python: false
+            python_setup: actions
           - os: windows-latest
             asset: windows-x86_64
-            system_python: false
+            python_setup: official
     steps:
       - uses: actions/checkout@v4
 
       # Linux x86_64 собираем системным Python 3.10 из Ubuntu 22.04:
       # python-build-standalone из setup-python собран с AVX и падает
       # на процессорах без AVX (SIGILL).
+      # Windows собираем официальным Python с python.org (через choco):
+      # toolcache-сборка тоже требует AVX.
       - uses: actions/setup-python@v5
-        if: matrix.system_python == false
+        if: matrix.python_setup == 'actions'
         with:
           python-version: "3.12"
 
       - name: install pyinstaller (system python)
-        if: matrix.system_python == true
+        if: matrix.python_setup == 'system'
         shell: bash
         run: |
           sudo apt-get update
@@ -63,17 +65,29 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/build-venv"
           "$RUNNER_TEMP/build-venv/bin/pip" install --upgrade pip pyinstaller
 
+      - name: install pyinstaller (official python)
+        if: matrix.python_setup == 'official'
+        shell: pwsh
+        run: |
+          choco install python312 -y --no-progress
+          C:\Python312\python.exe -m pip install --upgrade pip pyinstaller
+
       - name: install pyinstaller
-        if: matrix.system_python == false
+        if: matrix.python_setup == 'actions'
         run: python -m pip install --upgrade pip pyinstaller
 
       - name: build (system python)
-        if: matrix.system_python == true
+        if: matrix.python_setup == 'system'
         shell: bash
         run: "$RUNNER_TEMP/build-venv/bin/pyinstaller --clean --noconfirm packaging/rb-tui.spec"
 
+      - name: build (official python)
+        if: matrix.python_setup == 'official'
+        shell: pwsh
+        run: C:\Python312\python.exe -m PyInstaller --clean --noconfirm packaging/rb-tui.spec
+
       - name: build
-        if: matrix.system_python == false
+        if: matrix.python_setup == 'actions'
         run: pyinstaller --clean --noconfirm packaging/rb-tui.spec
 
       - name: package (unix)
