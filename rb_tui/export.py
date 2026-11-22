@@ -36,14 +36,16 @@ def export_json(path=None):
 def export_csv(path=None):
     """Экспорт метрик в CSV."""
     metrics = load_metrics()
-    lines = ["model,status,success_rate,avg_ttft,min_ttft,max_ttft,total_checks,ok,err,no"]
+    lines = ["model,status,success_rate,avg_ttft,avg_tts,avg_tps,min_ttft,max_ttft,total_checks,ok,err,no"]
     for mid in sorted(metrics.keys()):
         s = full_stats(metrics, mid)
         if not s:
             continue
         lines.append(
             f"{mid},{s['status']},{s['success_rate']},{s['avg_ttft'] or ''},"
-            f"{s['min_ttft'] or ''},{s['max_ttft'] or ''},{s['total']},{s['ok']},{s['err']},{s['no']}"
+            f"{s['avg_tts'] or ''},{s['avg_tps'] or ''},"
+            f"{s['min_ttft'] or ''},{s['max_ttft'] or ''},"
+            f"{s['total']},{s['ok']},{s['err']},{s['no']}"
         )
 
     csv_text = "\n".join(lines)
@@ -76,6 +78,8 @@ def export_html(path=None):
         if s["avg_ttft"]:
             bar_width = min(s["avg_ttft"] / 5 * 100, 100)
             ttft_bar = f'<div class="bar" style="width:{bar_width}%"></div>'
+        avg_s = s["avg_tts"] or "—"
+        avg_p = s["avg_tps"] or "—"
 
         rows.append(f"""
         <tr>
@@ -83,6 +87,8 @@ def export_html(path=None):
             <td><span class="badge" style="background:{status_color}">{s["status"]}</span></td>
             <td>{s["success_rate"]}%</td>
             <td>{avg_t}s{ttft_bar}</td>
+            <td>{avg_s}s</td>
+            <td>{avg_p}</td>
             <td>{s["total"]} ({s["ok"]} OK / {s["err"]} ERR)</td>
             <td title="first: {s["first_seen"]}, last: {s["last_seen"]}">{s["first_seen"]}</td>
         </tr>""")
@@ -141,7 +147,7 @@ def export_html(path=None):
 </div>
 <table id="table">
 <thead>
-  <tr><th>Модель</th><th>Статус</th><th>Success</th><th>TTFT</th><th>Проверки</th><th>Появилась</th></tr>
+  <tr><th>Модель</th><th>Статус</th><th>Success</th><th>TTFT</th><th>TTS</th><th>TPS</th><th>Проверки</th><th>Появилась</th></tr>
 </thead>
 <tbody>
 {''.join(rows)}

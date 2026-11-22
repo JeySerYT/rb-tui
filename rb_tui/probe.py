@@ -39,22 +39,22 @@ def is_throttle_error(msg):
 
 
 def probe_with_metrics(base, key, model, retries=1):
-    """Тест доступности модели + замер TTFT, total_time, tokens.
+    """Тест доступности модели + замер TTFT, TTS, total_time, tokens.
 
     Повторяем только транзиентные 5xx/таймауты. На защиту API не повторяем,
     а сразу сообщаем наверх — иначе ретраи только усугубляют блокировку.
     """
     retry_words = ("502", "503", "504", "timeout", "timed out", "overload", "busy")
     for attempt in range(retries + 1):
-        status, ttft, total, tokens, fp, msg = _probe_once(base, key, model)
+        status, ttft, tts, total, tokens, fp, msg = _probe_once(base, key, model)
         if status in ("OK", "THROTTLE"):
-            return status, ttft, total, tokens, fp, msg
+            return status, ttft, tts, total, tokens, fp, msg
         low = msg.lower()
         retryable = status == "ERR" and any(w in low for w in retry_words)
         if retryable and attempt < retries:
             time.sleep(2.0 * (attempt + 1))
             continue
-        return status, ttft, total, tokens, fp, msg
+        return status, ttft, tts, total, tokens, fp, msg
 
 
 def probe_all(base, key, models, delay=None, budget=None, progress=False):
@@ -75,13 +75,13 @@ def probe_all(base, key, models, delay=None, budget=None, progress=False):
     results = []
     total = len(models)
     for i, m in enumerate(models):
-        status, ttft, tot, tokens, fp, msg = probe_with_metrics(base, key, m)
+        status, ttft, tts, tot, tokens, fp, msg = probe_with_metrics(base, key, m)
         if status == "THROTTLE":
             if progress:
                 _sys.stderr.write("\r" + " " * 40 + "\r")
                 _sys.stderr.flush()
             raise ProbeThrottled(msg, results)
-        results.append((m, status, ttft, tot, tokens, fp, msg))
+        results.append((m, status, ttft, tts, tot, tokens, fp, msg))
         if progress:
             _sys.stderr.write(f"\r  проверено {i + 1}/{total}...")
             _sys.stderr.flush()
@@ -93,13 +93,25 @@ def probe_all(base, key, models, delay=None, budget=None, progress=False):
     return results
 
 
-def _probe_once(base, key, model):
-    """Один запрос к модели. Возвращает (status, ttft, total, tokens, fp, msg)."""
-    body = json.dumps({
+def _probe_once(base, key, model, stream=True):
+    """Один запрос к модели.
+
+    Возвращает (status, ttft, tts, total, tokens, fp, msg).
+    TTFT — время до первого токена, TTS — время до второго токена.
+    """
+    payload = {
         "model": model,
-        "messages": [{"role": "user", "content": "Return exactly 'ok' and nothing else."}],
-        "max_tokens": 5,
-    }).encode()
+        # Нужно несколько токенов: TTS — время до второго токена, а TPS
+        # без объёма генерации вырождается в «единица, делённая на задержку».
+        "messages": [{
+            "role": "user",
+            "content": "Count from 1 to 20, separated by single spaces. Output only the numbers.",
+        }],
+        "max_tokens": 48,
+    }
+    if stream:
+        payload["stream"] = True
+    body = json.dumps(payload).encode()
     headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
     url = base.rstrip("/") + "/chat/completions"
     req = urllib.request.Request(url, data=body, headers=headers)
@@ -107,17 +119,25 @@ def _probe_once(base, key, model):
     start = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            ttft = round(time.monotonic() - start, 3)
+            ctype = resp.headers.get("Content-Type", "")
+            if "text/event-stream" in ctype:
+                ttft, tts, total, tokens = _read_stream(resp, start)
+                if ttft is None:
+                    return "NO", None, None, total, 0, "", "пустой стрим"
+                return "OK", ttft, tts, total, tokens, "", ""
+
             raw = resp.read()
             total = round(time.monotonic() - start, 3)
             j = json.loads(raw)
         if "choices" not in j:
-            return "NO", ttft, total, 0, "", "ответ без choices"
+            return "NO", total, None, total, 0, "", "ответ без choices"
         tokens = 0
         if "usage" in j:
-            tokens = j["usage"].get("total_tokens", 0)
+            usage = j["usage"] or {}
+            tokens = usage.get("completion_tokens") or usage.get("total_tokens", 0)
         fp = j.get("system_fingerprint", "")
-        return "OK", ttft, total, tokens, fp, ""
+        # без стрима TTFT измерить нельзя — показываем полное время
+        return "OK", total, None, total, tokens, fp, ""
     except urllib.error.HTTPError as e:
         total = round(time.monotonic() - start, 3)
         try:
@@ -127,12 +147,60 @@ def _probe_once(base, key, model):
         except Exception:
             msg = f"HTTP {e.code}"
         msg = str(msg)[:80]
+        if stream and e.code in (400, 404, 422) and "stream" in msg.lower():
+            # провайдер не умеет стриминг — повторяем обычным запросом
+            return _probe_once(base, key, model, stream=False)
         if e.code == 429 or is_throttle_error(msg):
-            return "THROTTLE", None, total, 0, "", msg
-        return "ERR", None, total, 0, "", msg
+            return "THROTTLE", None, None, total, 0, "", msg
+        return "ERR", None, None, total, 0, "", msg
     except Exception as e:
         total = round(time.monotonic() - start, 3)
-        return "NO", None, total, 0, "", type(e).__name__
+        return "NO", None, None, total, 0, "", type(e).__name__
+
+
+def _read_stream(resp, start):
+    """Разобрать SSE-поток. Возвращает (ttft, tts, total, tokens).
+
+    tokens — число контент-чанков: оценка именно сгенерированных токенов,
+    без токенов промпта (usage в стриме обычно отсутствует).
+    """
+    first = None
+    second = None
+    chunks = 0
+    usage_tokens = 0
+
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            event = json.loads(data)
+        except ValueError:
+            continue
+
+        usage = event.get("usage")
+        if usage:
+            usage_tokens = (
+                usage.get("completion_tokens")
+                or usage.get("total_tokens")
+                or usage_tokens
+            )
+
+        for choice in event.get("choices") or []:
+            delta = choice.get("delta") or {}
+            if not delta.get("content"):
+                continue
+            chunks += 1
+            if chunks == 1:
+                first = round(time.monotonic() - start, 3)
+            elif chunks == 2:
+                second = round(time.monotonic() - start, 3)
+
+    total = round(time.monotonic() - start, 3)
+    return first, second, total, chunks or usage_tokens
 
 
 def speed_test(base, key, model, prompt_len=200):

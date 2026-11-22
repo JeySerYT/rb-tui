@@ -85,8 +85,8 @@ def run_probe_cycle(base, key, live, budget=None, progress=False):
 
     if results:
         metrics = load_metrics()
-        for mid, status, ttft, total, tokens, fp, msg in results:
-            metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg)
+        for mid, status, ttft, tts, total, tokens, fp, msg in results:
+            metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts)
         save_metrics(metrics)
         guard.mark_probed([r[0] for r in results])
 
@@ -350,17 +350,18 @@ def main():
         if mid not in live:
             print(r(f"  {mid} нет в каталоге API — проверять бессмысленно"))
             return
-        status, ttft, total, tokens, fp, msg = probe_with_metrics(base, key, mid)
+        status, ttft, tts, total, tokens, fp, msg = probe_with_metrics(base, key, mid)
         if status == "THROTTLE":
             left = guard.set_cooldown(reason=str(msg)[:80])
             print(r(f"  ⛔ API включил защиту: {msg}"))
             print(y(f"  пробы на паузе {guard.human_left(left)}, метрика не записана"))
             return
         metrics = load_metrics()
-        metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg)
+        metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts)
         save_metrics(metrics)
         guard.mark_probed([mid])
-        print(f"  {mid}: {status}  ttft={ttft}  total={total}  tokens={tokens}")
+        tts_s = f"  tts={tts}" if tts is not None else ""
+        print(f"  {mid}: {status}  ttft={ttft}{tts_s}  total={total}  tokens={tokens}")
         return
 
     # ── --sync ──
@@ -373,7 +374,7 @@ def main():
             return
 
         metrics = load_metrics()
-        ok_count = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
+        ok_count = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
         if results:
             print(f"  {g(f'✅ {ok_count}/{len(results)} доступны')}, метрики сохранены")
         else:
@@ -486,9 +487,9 @@ def main():
             ts = datetime.now().strftime("%d.%m.%Y %H:%M")
             lines = [f"── Проверка {ts} ──"]
             if last_results:
-                oks = [m for m, s, _, _, _, _, _ in last_results if s == "OK"]
-                errs = [m for m, s, _, _, _, _, _ in last_results if s == "ERR"]
-                nos = [m for m, s, _, _, _, _, _ in last_results if s == "NO"]
+                oks = [m for m, s, _, _, _, _, _, _ in last_results if s == "OK"]
+                errs = [m for m, s, _, _, _, _, _, _ in last_results if s == "ERR"]
+                nos = [m for m, s, _, _, _, _, _, _ in last_results if s == "NO"]
                 if oks:
                     lines.append(f"OK ({len(oks)}): {', '.join(oks)}")
                 if errs:
@@ -624,7 +625,7 @@ def _cmd_watch(base, key, interval=300):
                 print(f"  [{ts}] пробы на паузе")
             else:
                 metrics = load_metrics()
-                ok = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
+                ok = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
                 stable = sum(1 for r_ in results if model_status(metrics, r_[0]) == "stable")
                 print(f"  [{ts}] {g(str(ok))}/{len(results)} живых, {g(str(stable))} stable")
 

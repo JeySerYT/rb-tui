@@ -4,7 +4,7 @@ from rb_tui.utils import (
     g, r, y, bl, cy, dim, bold,
 )
 from rb_tui.metrics import (
-    model_status, avg_ttft, success_rate, full_stats,
+    model_status, avg_ttft, avg_tts, avg_tps, success_rate, full_stats,
     health_score, find_anomalies, lifetime,
 )
 from rb_tui.api import fetch_catalog
@@ -46,14 +46,21 @@ def render_report(cfg_models, live, new, gone, key_ok, base, prev_date, appeared
     print()
 
 
+def _secs(value):
+    if value is None:
+        return ""
+    col = g if value < 2 else (y if value < 5 else r)
+    return col(f"{value:.3f}")
+
+
 def print_test_table(results, metrics=None):
     if metrics is None:
         from rb_tui.metrics import load_metrics
         metrics = load_metrics()
     print(bold(f"  ТЕСТ ДОСТУПНОСТИ ({len(results)} моделей)"))
-    print(f"  {'Модель':<34} {'TTFT':<6} {'Ср.TTFT':<8} {'Статус':<9} {'%/N':<7} {'Ошибка'}")
-    print(dim("  " + "─" * 90))
-    for mid, status, ttft, total, tokens, fp, msg in results:
+    print(f"  {'Модель':<34} {'TTFT':<7} {'TTS':<7} {'TPS':<7} {'Ср.TTFT':<8} {'Статус':<9} {'%/N':<7} {'Ошибка'}")
+    print(dim("  " + "─" * 102))
+    for mid, status, ttft, tts, total, tokens, fp, msg in results:
         st = model_status(metrics, mid) if metrics else "?"
         avg_t = avg_ttft(metrics, mid) if metrics else None
         rate = success_rate(metrics, mid) if metrics else None
@@ -73,15 +80,19 @@ def print_test_table(results, metrics=None):
             col = g if rate >= 80 else (y if rate >= 30 else r)
             rate_str = col(f"{rate}%")
 
-        ttft_str = ""
-        if ttft is not None:
-            col = g if ttft < 2 else (y if ttft < 5 else r)
-            ttft_str = col(f"{ttft:.3f}")
+        ttft_str = _secs(ttft)
+        tts_str = _secs(tts)
+
+        tps_str = ""
+        if tts is not None and tokens and total is not None and ttft is not None:
+            window = total - ttft
+            if window > 0 and tokens > 1:
+                tps = (tokens - 1) / window
+                tps_str = (g if tps >= 15 else (y if tps >= 5 else r))(f"{tps:.1f}")
 
         avg_str = ""
         if avg_t is not None:
-            col = g if avg_t < 2 else (y if avg_t < 5 else r)
-            avg_str = col(f"{avg_t:.3f}")
+            avg_str = _secs(avg_t)
 
         n_str = dim(f"/{len(metrics.get(mid, []))}") if metrics and mid in metrics else ""
 
@@ -95,9 +106,10 @@ def print_test_table(results, metrics=None):
             badge = y("НЕТ  ")
             msg_out = y(msg)
 
-        print(f"  {mid:<34} {ttft_str:<6} {avg_str:<8} {s_badge:<9} {rate_str}{n_str:<7} {badge}{msg_out}")
+        print(f"  {mid:<34} {ttft_str:<7} {tts_str:<7} {tps_str:<7} {avg_str:<8} "
+              f"{s_badge:<9} {rate_str}{n_str:<7} {badge}{msg_out}")
 
-    ok = sum(1 for _, s, _, _, _, _, _ in results if s == "OK")
+    ok = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
     all_count = len(results)
     stable_n = sum(1 for r_ in results if model_status(metrics or {}, r_[0]) == "stable")
     print(f"\n  {dim('живых:')} {g(str(ok))} / {all_count}   "
@@ -170,6 +182,12 @@ def print_stats(metrics=None):
     avg_ttft_all = round(sum(all_ttfts) / len(all_ttfts), 3) if all_ttfts else None
     min_ttft_all = round(min(all_ttfts), 3) if all_ttfts else None
 
+    all_tts = [avg_tts(metrics, m) for m in models if avg_tts(metrics, m) is not None]
+    avg_tts_all = round(sum(all_tts) / len(all_tts), 3) if all_tts else None
+
+    all_tps = [avg_tps(metrics, m) for m in models if avg_tps(metrics, m) is not None]
+    avg_tps_all = round(sum(all_tps) / len(all_tps), 1) if all_tps else None
+
     hs = health_score(metrics)
 
     print(bold("  СТАТИСТИКА"))
@@ -177,6 +195,8 @@ def print_stats(metrics=None):
     print(f"  {g('stable:')}         {stable_n}   {y('unstable:')} {unstable_n}   {r('dead:')} {dead_n}   {dim('unknown:')} {unknown_n}")
     print(f"  {dim('средний TTFT:')}    {avg_ttft_all}s" if avg_ttft_all else "")
     print(f"  {dim('минимальный TTFT:')} {min_ttft_all}s" if min_ttft_all else "")
+    print(f"  {dim('средний TTS:')}     {avg_tts_all}s" if avg_tts_all else "")
+    print(f"  {dim('средний TPS:')}     {avg_tps_all} tok/s" if avg_tps_all else "")
     print(f"  {dim('health score:')}    {g(str(hs)) if hs >= 70 else (y(str(hs)) if hs >= 40 else r(str(hs)))}/100")
     print()
 
@@ -199,6 +219,8 @@ def print_info(model_id, metrics=None):
     print(f"  {dim('средний TTFT:')}   {st['avg_ttft']}s" if st['avg_ttft'] else "")
     print(f"  {dim('мин TTFT:')}       {st['min_ttft']}s" if st['min_ttft'] else "")
     print(f"  {dim('макс TTFT:')}      {st['max_ttft']}s" if st['max_ttft'] else "")
+    print(f"  {dim('средний TTS:')}    {st['avg_tts']}s" if st.get('avg_tts') else "")
+    print(f"  {dim('средний TPS:')}    {st['avg_tps']} tok/s" if st.get('avg_tps') else "")
     print(f"  {dim('первый тест:')}    {st['first_seen']}")
     print(f"  {dim('последний:')}      {st['last_seen']}")
     if st['fingerprints']:

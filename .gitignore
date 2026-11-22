@@ -6,5 +6,6 @@ build/
 out/
 .build-venv/
 .venv/
+.playwright-mcp/
 *.bak
 *.bak-*

@@ -1,123 +1,590 @@
 """HTTP-дашборд: --serve"""
 
 import json
-import os
-import sys
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse
 
-from rb_tui.metrics import load_metrics, full_stats, model_status, avg_ttft, success_rate, health_score
+from rb_tui.dashboard_view import build_view
+from rb_tui.metrics import (
+    load_metrics, full_stats, health_score,
+)
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    """Простой HTTP-сервер, отдающий HTML-дашборд."""
+    """HTTP-сервер: HTML-панель и JSON для автообновления."""
+
+    def _send(self, code, body, content_type):
+        payload = body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_json(self, data, code=200):
+        self._send(code, json.dumps(data, ensure_ascii=False), "application/json; charset=utf-8")
 
     def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+        path = urlparse(self.path).path
+
+        if path == "/health":
             metrics = load_metrics()
-            hs = health_score(metrics)
-            self.wfile.write(json.dumps({
+            self._send_json({
                 "status": "ok",
-                "health_score": hs,
+                "health_score": health_score(metrics),
                 "models": len(metrics),
                 "timestamp": datetime.now().isoformat(),
-            }).encode())
+            })
             return
 
-        if self.path == "/api/metrics":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+        if path == "/api/view":
+            self._send_json(build_view(load_metrics()))
+            return
+
+        if path == "/api/metrics":
             metrics = load_metrics()
             data = {}
             for mid in metrics:
-                s = full_stats(metrics, mid)
-                if s:
-                    data[mid] = s
-            self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode())
+                stats = full_stats(metrics, mid)
+                if stats:
+                    data[mid] = stats
+            self._send_json(data)
             return
 
-        # HTML dashboard
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
+        if path in ("/", "/index.html"):
+            view = build_view(load_metrics())
+            self._send(200, render_html(view), "text/html; charset=utf-8")
+            return
 
-        metrics = load_metrics()
-        hs = health_score(metrics)
+        self._send_json({"error": "not found"}, code=404)
 
-        rows = []
-        for mid in sorted(metrics.keys()):
-            s = full_stats(metrics, mid)
-            if not s:
-                continue
-            status_color = {
-                "stable": "#22c55e", "unstable": "#eab308",
-                "dead": "#ef4444", "unknown": "#6b7280",
-            }.get(s["status"], "#6b7280")
-            avg_t = s["avg_ttft"] or "—"
-            bar = ""
-            if s["avg_ttft"]:
-                bar = f'<div class="bar" style="width:{min(s["avg_ttft"]/5*100,100)}%"></div>'
-            rows.append(f"""
-            <tr>
-                <td><code>{mid}</code></td>
-                <td><span class="badge" style="background:{status_color}">{s["status"]}</span></td>
-                <td>{s["success_rate"]}%</td>
-                <td>{avg_t}s{bar}</td>
-                <td>{s["total"]} ({s["ok"]} OK)</td>
-                <td>{s["first_seen"]}</td>
-            </tr>""")
+    def log_message(self, fmt, *args):
+        # Не засоряем терминал каждой загрузкой страницы.
+        return
 
-        html = f"""<!DOCTYPE html>
+
+def render_html(view):
+    initial = (
+        json.dumps(view, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+    return HTML.replace("__INITIAL__", initial)
+
+
+HTML = r"""<!DOCTYPE html>
 <html lang="ru">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReformBoss Live</title>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>ReformBoss — мониторинг моделей</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e1012'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='12' fill='%23d6f264' text-anchor='middle'%3Erb%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  * {{ margin:0; padding:0; box-sizing:border-box; }}
-  body {{ font-family:system-ui,-apple-system,sans-serif; background:#0f172a; color:#e2e8f0; padding:2rem; }}
-  h1 {{ font-size:1.5rem; }}
-  .stats {{ display:flex; gap:1rem; margin:1.5rem 0; flex-wrap:wrap; }}
-  .stat-card {{ background:#1e293b; padding:1rem 1.5rem; border-radius:12px; min-width:120px; }}
-  .stat-card .num {{ font-size:2rem; font-weight:700; }}
-  .stat-card .label {{ font-size:0.8rem; color:#94a3b8; }}
-  table {{ width:100%; border-collapse:collapse; margin-top:1rem; }}
-  th, td {{ text-align:left; padding:0.6rem 0.8rem; border-bottom:1px solid #1e293b; font-size:0.85rem; }}
-  th {{ color:#94a3b8; cursor:pointer; }}
-  tr:hover td {{ background:#1e293b; }}
-  code {{ font-family:'JetBrains Mono',monospace; }}
-  .badge {{ display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:0.75rem; font-weight:600; }}
-  .bar {{ height:4px; background:#3b82f6; border-radius:2px; margin-top:4px; }}
-  .green {{ color:#22c55e; }} .red {{ color:#ef4444; }}
-</style></head>
+  :root{
+    color-scheme: dark;
+    --bg:#08090a;
+    --surface:#0e1012;
+    --surface-2:#13171a;
+    --line:#1e2328;
+    --line-strong:#2b3238;
+    --text:#e9ecef;
+    --muted:#8f98a3;
+    --accent:#d6f264;
+    --ok:#5ecf87;
+    --warn:#e0b341;
+    --bad:#e5675f;
+    --radius:14px;
+    --font:"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    font-size:15px;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .sr-only{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
+  .skip{
+    position:absolute;left:12px;top:-60px;z-index:10;
+    background:var(--accent);color:#0a0b09;padding:8px 14px;border-radius:8px;
+    font-weight:600;transition:top .15s ease;
+  }
+  .skip:focus{top:12px}
+  .wrap{max-width:1280px;margin:0 auto;padding:28px 24px 40px}
+  header.top{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:20px;flex-wrap:wrap;margin-bottom:26px;
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .mark{
+    display:grid;place-items:center;width:38px;height:38px;border-radius:11px;
+    border:1px solid var(--line-strong);background:var(--surface);
+    color:var(--accent);font-family:var(--mono);font-size:.82rem;font-weight:500;
+    letter-spacing:-.04em;
+  }
+  h1{font-size:1.06rem;font-weight:600;letter-spacing:-.01em;margin:0}
+  .sub{
+    margin:1px 0 0;font-size:.7rem;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted);
+  }
+  .top-right{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .live{
+    display:inline-flex;align-items:center;gap:7px;
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .live .dot{
+    width:7px;height:7px;border-radius:50%;background:var(--ok);
+    box-shadow:0 0 0 3px rgba(94,207,135,.14);
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  .live.offline .dot{background:var(--bad);box-shadow:0 0 0 3px rgba(229,103,95,.14);animation:none}
+  @keyframes pulse{50%{opacity:.45}}
+  .updated{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .btn{
+    appearance:none;font:inherit;font-size:.8rem;font-weight:500;
+    color:var(--text);background:var(--surface);
+    border:1px solid var(--line-strong);border-radius:10px;
+    padding:8px 14px;cursor:pointer;
+    transition:border-color .15s ease,background .15s ease;
+  }
+  .btn:hover{border-color:var(--muted);background:var(--surface-2)}
+  .btn:disabled{opacity:.5;cursor:progress}
+
+  .kpis{
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:10px;margin:0 0 22px;padding:0;
+  }
+  .kpi{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:14px 16px;
+  }
+  .kpi dt{
+    font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+  }
+  .kpi dd{
+    margin:7px 0 0;font-family:var(--mono);font-size:1.45rem;font-weight:500;
+    line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+  }
+  .kpi dd .unit{font-size:.72rem;color:var(--muted);letter-spacing:0;margin-left:3px}
+  .kpi--health dd{color:var(--accent)}
+  .kpi--ok dd{color:var(--ok)}
+  .kpi--warn dd{color:var(--warn)}
+  .kpi--bad dd{color:var(--bad)}
+
+  .panel{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);overflow:hidden;
+  }
+  .panel-head{
+    display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    padding:16px 18px 0;
+  }
+  .panel-head h2{font-size:.95rem;font-weight:600;margin:0;letter-spacing:-.01em}
+  .count{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .toolbar{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    flex-wrap:wrap;padding:14px 18px 16px;
+  }
+  .search input{
+    width:min(320px,76vw);font:inherit;font-size:.82rem;
+    color:var(--text);background:var(--bg);
+    border:1px solid var(--line-strong);border-radius:10px;
+    padding:9px 12px;
+  }
+  .search input::placeholder{color:var(--muted)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{
+    appearance:none;font:inherit;font-size:.76rem;font-weight:500;
+    color:var(--muted);background:transparent;
+    border:1px solid var(--line);border-radius:999px;
+    padding:6px 11px;cursor:pointer;
+    transition:color .15s ease,border-color .15s ease,background .15s ease;
+  }
+  .chip:hover{color:var(--text);border-color:var(--line-strong)}
+  .chip[aria-pressed="true"]{
+    color:var(--accent);border-color:rgba(214,242,100,.55);
+    background:rgba(214,242,100,.08);
+  }
+  .chip .n{font-family:var(--mono);opacity:.7;margin-left:4px}
+
+  .table-wrap{max-height:min(62vh,640px);overflow:auto}
+  table{width:100%;border-collapse:collapse;font-size:.83rem}
+  caption{caption-side:top}
+  thead th{
+    position:sticky;top:0;z-index:2;padding:0;
+    background:var(--surface);border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line-strong);text-align:left;
+  }
+  thead th button{
+    appearance:none;width:100%;font:inherit;font-size:.7rem;font-weight:500;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    background:transparent;border:0;padding:11px 14px;cursor:pointer;
+    text-align:left;white-space:nowrap;
+  }
+  thead th button:hover{color:var(--text)}
+  .th-unit{
+    text-transform:none;letter-spacing:0;font-weight:400;
+    opacity:.65;margin-left:2px;
+  }
+  th.num button{text-align:right}
+  th[aria-sort="ascending"] button,
+  th[aria-sort="descending"] button{color:var(--accent)}
+  th[aria-sort="ascending"] button::after{content:" ↑"}
+  th[aria-sort="descending"] button::after{content:" ↓"}
+  tbody td{
+    padding:10px 14px;border-bottom:1px solid var(--line);
+    white-space:nowrap;vertical-align:middle;
+  }
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:var(--surface-2)}
+  .num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .model{
+    font-family:var(--mono);font-size:.79rem;color:var(--text);
+    display:inline-block;max-width:360px;overflow:hidden;
+    text-overflow:ellipsis;vertical-align:bottom;
+  }
+  .when{font-family:var(--mono);font-size:.74rem;color:var(--muted)}
+  .muted{color:var(--muted)}
+  .v-ok{color:var(--ok)}
+  .v-warn{color:var(--warn)}
+  .v-bad{color:var(--bad)}
+  .badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:.7rem;font-weight:600;letter-spacing:.02em;
+    padding:3px 9px;border-radius:999px;border:1px solid;
+  }
+  .badge::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .badge.stable{color:var(--ok);border-color:rgba(94,207,135,.35);background:rgba(94,207,135,.1)}
+  .badge.unstable{color:var(--warn);border-color:rgba(224,179,65,.35);background:rgba(224,179,65,.1)}
+  .badge.dead{color:var(--bad);border-color:rgba(229,103,95,.35);background:rgba(229,103,95,.1)}
+  .badge.unknown{color:var(--muted);border-color:var(--line-strong);background:rgba(143,152,163,.08)}
+  .empty{
+    padding:40px 24px 48px;text-align:center;color:var(--muted);font-size:.86rem;
+  }
+  .empty strong{display:block;color:var(--text);font-weight:500;margin-bottom:6px}
+  .note{padding:0 18px 16px;font-size:.74rem;color:var(--muted);min-height:1em}
+  .note.err{color:var(--bad)}
+  footer{
+    display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    margin-top:20px;font-size:.74rem;color:var(--muted);
+  }
+  footer .links{display:flex;gap:14px}
+
+  @media (max-width:900px){
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media (max-width:640px){
+    .wrap{padding:20px 14px 32px}
+    .model{max-width:220px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important;transition:none !important}
+  }
+</style>
+</head>
 <body>
-<h1>🤖 ReformBoss <span style="font-size:0.9rem;color:#94a3b8;">live</span></h1>
-<div class="stats">
-  <div class="stat-card"><div class="num" style="color:#3b82f6;">{len(metrics)}</div><div class="label">Моделей</div></div>
-  <div class="stat-card"><div class="num green">{sum(1 for m in metrics if model_status(metrics,m)=='stable')}</div><div class="label">Stable</div></div>
-  <div class="stat-card"><div class="num" style="color:#eab308;">{sum(1 for m in metrics if model_status(metrics,m)=='unstable')}</div><div class="label">Unstable</div></div>
-  <div class="stat-card"><div class="num red">{sum(1 for m in metrics if model_status(metrics,m)=='dead')}</div><div class="label">Dead</div></div>
-  <div class="stat-card"><div class="num" style="color:{'#22c55e' if hs>=70 else '#eab308'}">{hs}</div><div class="label">Health Score</div></div>
+<a class="skip" href="#models">Перейти к таблице</a>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">rb</span>
+      <div>
+        <h1>ReformBoss</h1>
+        <p class="sub">Мониторинг моделей</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <span class="live" id="live"><span class="dot" aria-hidden="true"></span>live</span>
+      <span class="updated" id="updated">—</span>
+      <button class="btn" id="refresh" type="button">Обновить</button>
+    </div>
+  </header>
+
+  <main>
+    <dl class="kpis" aria-label="Ключевые показатели">
+      <div class="kpi"><dt>Моделей</dt><dd id="kpi-models">—</dd></div>
+      <div class="kpi kpi--health"><dt>Health</dt><dd id="kpi-health">—</dd></div>
+      <div class="kpi kpi--ok"><dt>Stable</dt><dd id="kpi-stable">—</dd></div>
+      <div class="kpi kpi--warn"><dt>Unstable</dt><dd id="kpi-unstable">—</dd></div>
+      <div class="kpi kpi--bad"><dt>Dead</dt><dd id="kpi-dead">—</dd></div>
+      <div class="kpi"><dt>Ср. TTFT</dt><dd id="kpi-ttft">—</dd></div>
+      <div class="kpi"><dt>Ср. TTS</dt><dd id="kpi-tts">—</dd></div>
+      <div class="kpi"><dt>Ср. TPS</dt><dd id="kpi-tps">—</dd></div>
+    </dl>
+
+    <section class="panel" aria-labelledby="models-title">
+      <div class="panel-head">
+        <h2 id="models-title">Модели</h2>
+        <span class="count" id="count">—</span>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <label class="sr-only" for="q">Поиск по названию модели</label>
+          <input id="q" type="search" placeholder="Поиск модели…" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="chips" role="group" aria-label="Фильтр по статусу">
+          <button class="chip" type="button" data-status="all" aria-pressed="true">Все <span class="n" id="n-all">0</span></button>
+          <button class="chip" type="button" data-status="stable" aria-pressed="false">Stable <span class="n" id="n-stable">0</span></button>
+          <button class="chip" type="button" data-status="unstable" aria-pressed="false">Unstable <span class="n" id="n-unstable">0</span></button>
+          <button class="chip" type="button" data-status="dead" aria-pressed="false">Dead <span class="n" id="n-dead">0</span></button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="models">
+          <caption class="sr-only">Модели: статус, доля успешных проб, задержки TTFT и TTS, скорость TPS, число проверок.</caption>
+          <thead>
+            <tr>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="id" title="Идентификатор модели">Модель</button></th>
+              <th scope="col" aria-sort="ascending"><button type="button" data-sort="status" title="Статус по последним проверкам">Статус</button></th>
+              <th scope="col" class="num" aria-sort="none"><button type="button" data-sort="success_rate" title="Доля успешных проверок">Success</button></th>
+              <th scope="col" class="num" aria-sort="none"><button type="button" data-sort="avg_ttft" title="Время до первого токена">TTFT <span class="th-unit">s</span></button></th>
+              <th scope="col" class="num" aria-sort="none"><button type="button" data-sort="avg_tts" title="Время до второго токена">TTS <span class="th-unit">s</span></button></th>
+              <th scope="col" class="num" aria-sort="none"><button type="button" data-sort="avg_tps" title="Эффективная скорость: токенов в секунду за всё время ответа">TPS <span class="th-unit">tok/s</span></button></th>
+              <th scope="col" class="num" aria-sort="none"><button type="button" data-sort="total" title="Всего проверок и успешных">Проверки</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="last_seen" title="Время последней проверки">Последний</button></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="empty" hidden></div>
+      </div>
+      <p class="note" id="note" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <footer>
+    <span>rb-tui · автообновление каждые 30 с</span>
+    <span class="links">
+      <a href="/api/view">JSON /api/view</a>
+      <a href="/health">health</a>
+    </span>
+  </footer>
 </div>
-<table><thead><tr><th>Модель</th><th>Статус</th><th>Success</th><th>TTFT</th><th>Проверки</th><th>Появилась</th></tr></thead>
-<tbody>{''.join(rows)}</tbody></table>
-<div style="margin-top:1rem;font-size:0.8rem;color:#64748b;">
-  Обновлено {datetime.now().strftime('%d.%m.%Y %H:%M')} ·
-  <a href="/api/metrics" style="color:#3b82f6;">JSON API</a> ·
-  <a href="/health" style="color:#3b82f6;">Health</a>
-</div>
+
 <script>
-  document.querySelectorAll('th').forEach((th,i) => th.addEventListener('click',()=>{{
-    const tbody=document.querySelector('tbody'),rows=Array.from(tbody.querySelectorAll('tr'));
-    const dir=th.classList.toggle('asc')?1:-1;
-    rows.sort((a,b)=>{{const ca=a.cells[i].textContent.trim(),cb=b.cells[i].textContent.trim();
-    const na=parseFloat(ca),nb=parseFloat(cb);return (isNaN(na)||isNaN(nb)?ca.localeCompare(cb):na-nb)*dir;}});
-    rows.forEach(r=>tbody.appendChild(r));
-  }}));
-</script></body></html>"""
-        self.wfile.write(html.encode())
+(() => {
+  "use strict";
+
+  const INITIAL = __INITIAL__;
+  const STATUS_ORDER = {stable: 0, unstable: 1, dead: 2, unknown: 3};
+  const state = {
+    view: INITIAL,
+    query: "",
+    status: "all",
+    sort: {key: "status", dir: 1},
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const rowsEl = $("rows");
+  const emptyEl = $("empty");
+  const noteEl = $("note");
+  const liveEl = $("live");
+  const refreshEl = $("refresh");
+
+  function esc(value) {
+    return String(value).replace(/[&<>"']/g, (c) => (
+      {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]
+    ));
+  }
+
+  function num(value, digits) {
+    if (value === null || value === undefined) return "—";
+    return Number(value).toLocaleString("ru-RU", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function unit(value, suffix) {
+    return value === null || value === undefined
+      ? '<span class="muted">—</span>'
+      : num(value, suffix === " tok/s" ? 1 : 3) + `<span class="unit">${suffix}</span>`;
+  }
+
+  function level(value, ok, warn) {
+    if (value === null || value === undefined) return "muted";
+    if (value >= ok) return "v-ok";
+    if (value >= warn) return "v-warn";
+    return "v-bad";
+  }
+
+  function delayLevel(value) {
+    if (value === null || value === undefined) return "muted";
+    if (value < 2) return "v-ok";
+    if (value < 5) return "v-warn";
+    return "v-bad";
+  }
+
+  function renderKpis(v) {
+    const c = v.counts || {};
+    const a = v.averages || {};
+    $("kpi-models").textContent = v.models.length;
+    $("kpi-health").textContent = v.health;
+    $("kpi-stable").textContent = c.stable || 0;
+    $("kpi-unstable").textContent = c.unstable || 0;
+    $("kpi-dead").textContent = c.dead || 0;
+    $("kpi-ttft").innerHTML = unit(a.ttft, " s");
+    $("kpi-tts").innerHTML = unit(a.tts, " s");
+    $("kpi-tps").innerHTML = unit(a.tps, " tok/s");
+    $("n-all").textContent = v.models.length;
+    $("n-stable").textContent = c.stable || 0;
+    $("n-unstable").textContent = c.unstable || 0;
+    $("n-dead").textContent = c.dead || 0;
+    $("updated").textContent = "данные на " + v.generated_at;
+  }
+
+  function visibleRows() {
+    const q = state.query.trim().toLowerCase();
+    const rows = state.view.models.filter((m) => {
+      if (state.status !== "all" && m.status !== state.status) return false;
+      return !q || m.id.toLowerCase().includes(q);
+    });
+
+    const {key, dir} = state.sort;
+    rows.sort((a, b) => {
+      if (key === "status") {
+        const d = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
+        if (d !== 0) return d * dir;
+        if (a.avg_ttft === null || a.avg_ttft === undefined) return 1;
+        if (b.avg_ttft === null || b.avg_ttft === undefined) return -1;
+        return ((a.avg_ttft - b.avg_ttft) * dir) || a.id.localeCompare(b.id);
+      }
+      if (key === "id" || key === "last_seen") {
+        return String(a[key]).localeCompare(String(b[key])) * dir;
+      }
+      const av = a[key];
+      const bv = b[key];
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      return (av - bv) * dir;
+    });
+    return rows;
+  }
+
+  function rowHtml(m) {
+    return `<tr>
+      <td><code class="model" title="${esc(m.id)}">${esc(m.id)}</code></td>
+      <td><span class="badge ${esc(m.status)}">${esc(m.status)}</span></td>
+      <td class="num ${level(m.success_rate, 80, 30)}">${m.success_rate}%</td>
+      <td class="num ${delayLevel(m.avg_ttft)}">${num(m.avg_ttft, 3)}</td>
+      <td class="num ${delayLevel(m.avg_tts)}">${num(m.avg_tts, 3)}</td>
+      <td class="num ${level(m.avg_tps, 15, 5)}">${num(m.avg_tps, 1)}</td>
+      <td class="num">${m.total}<span class="muted"> · ${m.ok} ok</span></td>
+      <td class="when">${esc(m.last_seen)}</td>
+    </tr>`;
+  }
+
+  function render() {
+    const v = state.view;
+    renderKpis(v);
+
+    const rows = visibleRows();
+    rowsEl.innerHTML = rows.map(rowHtml).join("");
+    $("count").textContent = rows.length === v.models.length
+      ? `${v.models.length} моделей`
+      : `${rows.length} из ${v.models.length}`;
+
+    if (rows.length === 0) {
+      emptyEl.hidden = false;
+      if (v.models.length === 0) {
+        emptyEl.innerHTML = "<strong>Пока нет данных</strong>Запусти <code>rb-tui --sync</code> или <code>rb-tui --test</code>, чтобы собрать первые метрики.";
+      } else {
+        emptyEl.innerHTML = "<strong>Ничего не найдено</strong>Измени поиск или сбрось фильтр статуса.";
+      }
+    } else {
+      emptyEl.hidden = true;
+    }
+
+    document.querySelectorAll("th[aria-sort]").forEach((th) => {
+      const button = th.querySelector("button[data-sort]");
+      if (!button) return;
+      if (button.dataset.sort === state.sort.key) {
+        th.setAttribute("aria-sort", state.sort.dir === 1 ? "ascending" : "descending");
+      } else {
+        th.setAttribute("aria-sort", "none");
+      }
+    });
+  }
+
+  async function refresh() {
+    refreshEl.disabled = true;
+    try {
+      const res = await fetch("/api/view", {cache: "no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      state.view = await res.json();
+      render();
+      liveEl.classList.remove("offline");
+      noteEl.classList.remove("err");
+      noteEl.textContent = "обновлено " + new Date().toLocaleTimeString("ru-RU");
+    } catch (err) {
+      liveEl.classList.add("offline");
+      noteEl.classList.add("err");
+      noteEl.textContent = "нет связи с сервером: " + err.message;
+    } finally {
+      refreshEl.disabled = false;
+    }
+  }
+
+  $("q").addEventListener("input", (e) => {
+    state.query = e.target.value;
+    render();
+  });
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      state.status = chip.dataset.status;
+      document.querySelectorAll(".chip").forEach((c) => {
+        c.setAttribute("aria-pressed", String(c === chip));
+      });
+      render();
+    });
+  });
+
+  document.querySelectorAll("th button[data-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.sort;
+      if (state.sort.key === key) {
+        state.sort.dir *= -1;
+      } else {
+        state.sort = {key, dir: 1};
+      }
+      render();
+    });
+  });
+
+  refreshEl.addEventListener("click", refresh);
+
+  setInterval(() => {
+    if (!document.hidden) refresh();
+  }, 30000);
+
+  render();
+  noteEl.textContent = "данные на " + state.view.generated_at;
+})();
+</script>
+</body>
+</html>
+"""
 
 
 def serve(host="127.0.0.1", port=9090):
@@ -129,7 +596,7 @@ def serve(host="127.0.0.1", port=9090):
         print("  порт занят? укажи другой: rb-tui --serve --serve-port 9091")
         return
     print(f"  🌐 Дашборд: http://{host}:{port}")
-    print(f"  📡 API:     http://{host}:{port}/api/metrics")
+    print(f"  📡 API:     http://{host}:{port}/api/view")
     print(f"  ❤️  Health:  http://{host}:{port}/health")
     print(f"  {dim('Ctrl+C для выхода')}")
     try:

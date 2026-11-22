@@ -20,7 +20,7 @@ def save_metrics(metrics):
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
 
-def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint="", msg=""):
+def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint="", msg="", tts=None):
     if model_id not in metrics:
         metrics[model_id] = []
     entry = {
@@ -30,6 +30,12 @@ def add_metric(metrics, model_id, status, ttft, total_time, tokens, fingerprint=
         "total_time": total_time,
         "tokens": tokens,
     }
+    if tts is not None:
+        entry["tts"] = tts
+        # Эффективный throughput: завершённые токены за всё время ответа.
+        # Окно «после первого токена» у буферизующих шлюзов даёт мусор.
+        if tokens and total_time:
+            entry["tps"] = round(tokens / total_time, 1)
     if fingerprint:
         entry["fp"] = fingerprint
     if msg:
@@ -66,6 +72,24 @@ def avg_ttft(metrics, model_id):
     return round(sum(ok_ttfts) / len(ok_ttfts), 3)
 
 
+def avg_tts(metrics, model_id):
+    """Среднее время до второго токена (только стриминговые замеры)."""
+    hist = metrics.get(model_id, [])
+    vals = [h["tts"] for h in hist if h["status"] == "OK" and h.get("tts") is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 3)
+
+
+def avg_tps(metrics, model_id):
+    """Средняя скорость генерации, токенов в секунду."""
+    hist = metrics.get(model_id, [])
+    vals = [h["tps"] for h in hist if h["status"] == "OK" and h.get("tps") is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 1)
+
+
 def success_rate(metrics, model_id):
     """Процент успешных запросов."""
     hist = metrics.get(model_id, [])
@@ -98,6 +122,14 @@ def full_stats(metrics, model_id):
     min_t = round(min(ok_ttfts), 3) if ok_ttfts else None
     max_t = round(max(ok_ttfts), 3) if ok_ttfts else None
 
+    ok_tts = [h["tts"] for h in hist if h["status"] == "OK" and h.get("tts") is not None]
+    avg_s = round(sum(ok_tts) / len(ok_tts), 3) if ok_tts else None
+    min_s = round(min(ok_tts), 3) if ok_tts else None
+    max_s = round(max(ok_tts), 3) if ok_tts else None
+
+    ok_tps = [h["tps"] for h in hist if h["status"] == "OK" and h.get("tps") is not None]
+    avg_p = round(sum(ok_tps) / len(ok_tps), 1) if ok_tps else None
+
     fp_changes = set()
     for h in hist:
         if h.get("fp"):
@@ -112,6 +144,10 @@ def full_stats(metrics, model_id):
         "avg_ttft": avg_t,
         "min_ttft": min_t,
         "max_ttft": max_t,
+        "avg_tts": avg_s,
+        "min_tts": min_s,
+        "max_tts": max_s,
+        "avg_tps": avg_p,
         "fingerprints": list(fp_changes),
         "status": model_status(metrics, model_id),
         "first_seen": hist[0]["ts"],
