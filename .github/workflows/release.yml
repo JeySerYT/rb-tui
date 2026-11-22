@@ -49,7 +49,7 @@ jobs:
       # Linux x86_64 собираем системным Python 3.10 из Ubuntu 22.04:
       # python-build-standalone из setup-python собран с AVX и падает
       # на процессорах без AVX (SIGILL).
-      # Windows собираем официальным Python с python.org (через choco):
+      # Windows собираем официальным Python с python.org:
       # toolcache-сборка тоже требует AVX.
       - uses: actions/setup-python@v5
         if: matrix.python_setup == 'actions'
@@ -69,8 +69,12 @@ jobs:
         if: matrix.python_setup == 'official'
         shell: pwsh
         run: |
-          choco install python312 -y --no-progress
-          C:\Python312\python.exe -m pip install --upgrade pip pyinstaller
+          $url = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\python-setup.exe"
+          Start-Process -FilePath "$env:RUNNER_TEMP\python-setup.exe" -Wait -ArgumentList `
+            "/quiet", "InstallAllUsers=0", "TargetDir=C:\py312", `
+            "Include_pip=1", "Include_test=0", "Include_launcher=0", "PrependPath=0"
+          C:\py312\python.exe -m pip install --upgrade pip pyinstaller
 
       - name: install pyinstaller
         if: matrix.python_setup == 'actions'
@@ -84,7 +88,7 @@ jobs:
       - name: build (official python)
         if: matrix.python_setup == 'official'
         shell: pwsh
-        run: C:\Python312\python.exe -m PyInstaller --clean --noconfirm packaging/rb-tui.spec
+        run: C:\py312\python.exe -m PyInstaller --clean --noconfirm packaging/rb-tui.spec
 
       - name: build
         if: matrix.python_setup == 'actions'
