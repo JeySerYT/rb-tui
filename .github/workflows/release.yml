@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -54,7 +54,7 @@ jobs:
       # на процессорах без AVX (SIGILL).
       # Windows собираем официальным Python с python.org:
       # toolcache-сборка тоже требует AVX.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: matrix.python_setup == 'actions'
         with:
           python-version: "3.12"
