@@ -203,11 +203,50 @@ def current_binary():
     return os.path.realpath(sys.executable)
 
 
+def _schedule_windows_replace(staged, target):
+    """Заменить файл после выхода процесса: Windows не даёт перезаписать exe."""
+    script = os.path.join(
+        tempfile.gettempdir(), f"rb-tui-update-{os.getpid()}.cmd",
+    )
+    lines = [
+        "@echo off",
+        'set "src=%~1"',
+        'set "dst=%~2"',
+        "set /a tries=0",
+        "ping -n 3 127.0.0.1 >nul",
+        ":retry",
+        'move /Y "%src%" "%dst%" >nul 2>&1',
+        "if not errorlevel 1 goto done",
+        "set /a tries+=1",
+        "if %tries% geq 30 goto done",
+        "ping -n 2 127.0.0.1 >nul",
+        "goto retry",
+        ":done",
+        'del "%~f0" >nul 2>&1',
+    ]
+    with open(script, "w", encoding="ascii", newline="\r\n") as f:
+        f.write("\n".join(lines))
+
+    flags = 0
+    if hasattr(subprocess, "DETACHED_PROCESS"):
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", script, staged, target],
+            creationflags=flags, close_fds=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as e:
+        raise UpdateError(f"не удалось запустить замену файла: {e}")
+
+
 def _install(temp_binary, target):
     """Заменить target на temp_binary, сохранив права и проверив запуск."""
     directory = os.path.dirname(target) or "."
     fd, staged = tempfile.mkstemp(prefix=".rb-tui-new-", dir=directory)
     os.close(fd)
+    keep_staged = False
     try:
         shutil.copyfile(temp_binary, staged)
         os.chmod(staged, 0o755)
@@ -222,15 +261,19 @@ def _install(temp_binary, target):
                 f"новый бинарник завершился с кодом {check.returncode}: "
                 f"{(check.stderr or check.stdout).strip()[:200]}"
             )
-        try:
-            os.replace(staged, target)
-        except OSError as e:
-            raise UpdateError(
-                f"не удалось заменить {target}: {e}. "
-                "На Windows закрой rb-tui и запусти установщик вручную."
-            )
+        if sys.platform.startswith("win"):
+            _schedule_windows_replace(staged, target)
+            keep_staged = True
+        else:
+            try:
+                os.replace(staged, target)
+            except OSError as e:
+                raise UpdateError(
+                    f"не удалось заменить {target}: {e}. "
+                    "Проверь права на каталог."
+                )
     finally:
-        if os.path.exists(staged):
+        if not keep_staged and os.path.exists(staged):
             try:
                 os.unlink(staged)
             except OSError:
@@ -267,6 +310,9 @@ def update(force=False, progress=print):
         binary = extract_binary(archive, os.path.join(tmp, "rb-tui"), name)
         _install(binary, target)
 
-    progress(f"  обновлено: v{__version__} → v{latest_clean}")
+    if sys.platform.startswith("win"):
+        progress(f"  v{latest_clean} заменит файл после выхода (пара секунд)")
+    else:
+        progress(f"  обновлено: v{__version__} → v{latest_clean}")
     progress(f"  файл: {target}")
     return latest_clean

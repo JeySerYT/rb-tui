@@ -197,5 +197,51 @@ class FrozenTest(unittest.TestCase):
             self.assertEqual(update.current_binary(), os.path.realpath("/opt/rb-tui"))
 
 
+class WindowsReplaceTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_schedule_writes_move_script_and_launches_it(self):
+        staged = os.path.join(self.tmp.name, ".rb-tui-new-x")
+        target = os.path.join(self.tmp.name, "rb-tui.exe")
+        with mock.patch.object(update.tempfile, "gettempdir",
+                               return_value=self.tmp.name), \
+                mock.patch.object(update.subprocess, "Popen") as popen:
+            update._schedule_windows_replace(staged, target)
+        script = os.path.join(self.tmp.name,
+                              f"rb-tui-update-{os.getpid()}.cmd")
+        with open(script, encoding="ascii") as f:
+            body = f.read()
+        self.assertIn('move /Y "%src%" "%dst%"', body)
+        self.assertIn(":retry", body)
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args[0][0][-2:], [staged, target])
+
+    def test_install_uses_helper_on_windows(self):
+        target = os.path.join(self.tmp.name, "rb-tui.exe")
+        with open(target, "wb") as f:
+            f.write(b"old")
+        temp_binary = os.path.join(self.tmp.name, "download")
+        with open(temp_binary, "wb") as f:
+            f.write(b"new")
+
+        run_result = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(update.sys, "platform", "win32"), \
+                mock.patch.object(update.subprocess, "run",
+                                  return_value=run_result), \
+                mock.patch.object(update, "_schedule_windows_replace") as helper, \
+                mock.patch.object(update.os, "replace") as replace:
+            update._install(temp_binary, target)
+
+        helper.assert_called_once()
+        replace.assert_not_called()
+        staged = helper.call_args[0][0]
+        self.addCleanup(lambda: os.path.exists(staged) and os.unlink(staged))
+        self.assertTrue(os.path.exists(staged))
+        with open(target, "rb") as f:
+            self.assertEqual(f.read(), b"old")
+
+
 if __name__ == "__main__":
     unittest.main()
