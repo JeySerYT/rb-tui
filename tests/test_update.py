@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import urllib.error
 import zipfile
 from unittest import mock
 
@@ -177,6 +178,37 @@ class FetchLatestTest(unittest.TestCase):
                                   return_value=self._response(body)):
             with self.assertRaises(update.UpdateError):
                 update.fetch_latest()
+
+    def test_falls_back_to_list_when_no_latest(self):
+        # Все релизы — pre-release: /latest отдаёт 404, но список не пуст.
+        import json
+        body = json.dumps([{
+            "tag_name": "v1.0.0-beta.1",
+            "assets": [
+                {"name": "rb-tui-linux-x86_64.tar.gz",
+                 "browser_download_url": "https://example.test/a.tar.gz"},
+                {"name": "rb-tui-linux-x86_64.tar.gz.sha256",
+                 "browser_download_url": "https://example.test/a.sha256"},
+            ],
+        }])
+
+        error = urllib.error.HTTPError(
+            "https://api.github.com/repos/x/y/releases/latest",
+            404, "Not Found", {}, io.BytesIO(b""))
+        self.addCleanup(error.close)
+
+        def fake_request(url, timeout=None):
+            if url.endswith("/latest"):
+                raise error
+            return self._response(body)
+
+        with mock.patch.object(update, "asset_name",
+                               return_value="rb-tui-linux-x86_64.tar.gz"), \
+                mock.patch.object(update, "_request", side_effect=fake_request):
+            version, archive, checksum = update.fetch_latest()
+        self.assertEqual(version, "v1.0.0-beta.1")
+        self.assertEqual(archive, "https://example.test/a.tar.gz")
+        self.assertEqual(checksum, "https://example.test/a.sha256")
 
     def test_returns_version_and_urls(self):
         import json

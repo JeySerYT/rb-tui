@@ -48,13 +48,13 @@ CLI и локальный дашборд для каталога моделей 
 **Linux и macOS:**
 
 ```bash
-curl -fsSL https://github.com/JeySerYT/rb-tui/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://github.com/JeySerYT/rb-tui/releases/latest/download/install.ps1 | iex
+irm https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.ps1 | iex
 ```
 
 Установщики скачивают бинарник, проверяют sha256 (`sha256sum` или
@@ -299,8 +299,10 @@ rb_tui/
 └── utils.py            # цвета, JSONC, атомарная запись
 ```
 
-Сборка бинарника: `scripts/build-binary.sh`. Релиз — тег `v*`; workflow
-собирает пять платформ и публикует архивы вместе с `install.sh` и `install.ps1`.
+Сборка бинарника: `scripts/build-binary.sh`. Релиз — тег `v*`; workflow собирает
+пять платформ и публикует архивы с контрольными суммами. Беты (`*-beta.*`)
+помечаются как pre-release. Установщики лежат по постоянным URL в корне
+репозитория и не копируются в каждый релиз.
 
 ## Лицензия
 

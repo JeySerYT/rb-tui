@@ -129,11 +129,20 @@ def fetch_latest(timeout=TIMEOUT):
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            raise UpdateError(
-                f"у {repo()} нет опубликованных релизов. "
-                "Установщик: curl -fsSL .../install.sh | sh"
-            )
-        raise UpdateError(f"GitHub API ответил HTTP {e.code}")
+            # Проект с одними бетами не имеет /latest: берём первый из списка.
+            try:
+                with _request(
+                    f"https://api.github.com/repos/{repo()}/releases?per_page=1",
+                    timeout=timeout,
+                ) as resp:
+                    releases = json.loads(resp.read())
+            except Exception as exc:
+                raise UpdateError(f"не удалось получить список релизов: {exc}")
+            if not releases:
+                raise UpdateError(f"у {repo()} нет опубликованных релизов")
+            data = releases[0]
+        else:
+            raise UpdateError(f"GitHub API ответил HTTP {e.code}")
     except Exception as e:
         raise UpdateError(f"не удалось проверить обновления: {e}")
 

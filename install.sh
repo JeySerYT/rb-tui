@@ -47,16 +47,24 @@ esac
 
 asset="rb-tui-${os}-${arch}.tar.gz"
 
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT INT TERM
+
 if [ -n "${RB_TUI_BASE_URL:-}" ]; then
     base="$RB_TUI_BASE_URL"
 elif [ "$VERSION" = "latest" ]; then
-    base="https://github.com/${REPO}/releases/latest/download"
+    # У проектов только с бетами нет /releases/latest — берём первый из API.
+    if download "$tmp/releases.json" \
+        "https://api.github.com/repos/${REPO}/releases?per_page=1"; then
+        tag="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/releases.json" | head -1)"
+    else
+        tag=""
+    fi
+    [ -n "$tag" ] || die "не удалось определить последний релиз ${REPO}"
+    base="https://github.com/${REPO}/releases/download/${tag}"
 else
     base="https://github.com/${REPO}/releases/download/v${VERSION}"
 fi
-
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT INT TERM
 
 say "==> скачиваю $asset"
 download "$tmp/$asset" "$base/$asset" \

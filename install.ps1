@@ -1,6 +1,6 @@
 # Установщик rb-tui для Windows.
 #
-#   irm https://github.com/JeySerYT/rb-tui/releases/latest/download/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.ps1 | iex
 #
 # Переменные:
 #   RB_TUI_REPO         owner/repo (по умолч. JeySerYT/rb-tui)
@@ -25,7 +25,14 @@ $base = if ($env:RB_TUI_BASE_URL) {
     "https://github.com/$repo/releases"
 }
 if ($version -eq "latest") {
-    $url = "$base/latest/download"
+    # У проектов только с бетами нет /releases/latest — берём первый из API.
+    try {
+        $releases = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=1" -UseBasicParsing)
+        if ($releases.Count -eq 0) { throw "нет релизов" }
+        $url = "$base/download/$($releases[0].tag_name)"
+    } catch {
+        throw "не удалось получить последний релиз $repo : $_"
+    }
 } else {
     $url = "$base/download/v$($version.TrimStart("v"))"
 }
