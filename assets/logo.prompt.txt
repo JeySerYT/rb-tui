@@ -1,0 +1,26 @@
+Логотип ReformBoss Catalog — знак «>|» : шеврон терминала и три растущих бара.
+
+Сгенерировано 22.11.2026 моделью gemini-3.8-flash (ReformBoss), потому что
+image-модели gpt-image-2 и gpt-image-2.6-flare были в каталоге, но без живого
+маршрута (404 model_unavailable). Когда маршрут оживёт — перегенерировать
+растровый вариант и сравнить.
+
+Промпт:
+
+Design a flat vector app icon as ONE self-contained SVG.
+Requirements: viewBox 0 0 512 512, no <text>, no <filter>, no <image>, no external
+refs, only rect/path/circle/line/linearGradient. rsvg-convert must render it exactly.
+
+Concept: a CLI tool that syncs and benchmarks LLM model catalogs.
+Mark: a bold terminal prompt chevron '>' on the left merging into three ascending
+bars on the right, like a signal strength indicator.
+
+Palette: background rounded square #0d141c with rx=112; hairline inner border
+#26303b 6px inset 18px; chevron stroke #58a6ff round caps; bars bottom-aligned,
+heights 96/152/208, width 40, gap 20, colors #2f81f7, #45a8c9, #3fb950.
+
+Composition: 20% padding, optical centering, sharp geometry, no shadows, no gloss,
+no 3D. It must stay readable at 32x32 and look like a professional developer tool
+icon, not a clipart.
+
+Return ONLY the SVG markup, no markdown fence, no commentary.

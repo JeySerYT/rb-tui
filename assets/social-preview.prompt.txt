@@ -1,0 +1,13 @@
+Social preview 1280x640 для GitHub.
+
+Знак взят из assets/logo.svg (модель gemini-3.8-flash), текст и раскладка
+собраны вручную в SVG: логотип слева 248 px, разделитель, название в две
+строки, подзаголовок, строка возможностей, подвал со ссылкой и платформами.
+
+Промпт для знака — в assets/logo.prompt.txt. Пересборка:
+
+    rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
+    rsvg-convert -w 1280 -h 640 assets/social-preview.svg -o assets/social-preview.png
+
+Требования: PNG, 1280x640, меньше 1 МБ, читаемо в превью 640x320.
+Загружается только через GitHub UI: Settings -> Social preview -> Edit.
