@@ -31,25 +31,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             asset: linux-x86_64
+            system_python: true
           - os: ubuntu-24.04-arm
             asset: linux-arm64
+            system_python: false
           - os: macos-15
             asset: darwin-arm64
+            system_python: false
           - os: windows-latest
             asset: windows-x86_64
+            system_python: false
     steps:
       - uses: actions/checkout@v4
 
+      # Linux x86_64 собираем системным Python 3.10 из Ubuntu 22.04:
+      # python-build-standalone из setup-python собран с AVX и падает
+      # на процессорах без AVX (SIGILL).
       - uses: actions/setup-python@v5
+        if: matrix.system_python == false
         with:
           python-version: "3.12"
 
+      - name: install pyinstaller (system python)
+        if: matrix.system_python == true
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          python3 -m venv "$RUNNER_TEMP/build-venv"
+          "$RUNNER_TEMP/build-venv/bin/pip" install --upgrade pip pyinstaller
+
       - name: install pyinstaller
+        if: matrix.system_python == false
         run: python -m pip install --upgrade pip pyinstaller
 
+      - name: build (system python)
+        if: matrix.system_python == true
+        shell: bash
+        run: "$RUNNER_TEMP/build-venv/bin/pyinstaller --clean --noconfirm packaging/rb-tui.spec"
+
       - name: build
+        if: matrix.system_python == false
         run: pyinstaller --clean --noconfirm packaging/rb-tui.spec
 
       - name: package (unix)
