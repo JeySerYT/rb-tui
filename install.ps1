@@ -47,9 +47,13 @@ try {
     }
     Write-Host "==> контрольная сумма ok"
 
+    # Снять Mark-of-the-Web: иначе при первом запуске SmartScreen ругается.
+    Unblock-File -Path (Join-Path $tmp $asset) -ErrorAction SilentlyContinue
     Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
+    Unblock-File -Path (Join-Path $tmp "rb-tui.exe") -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     Copy-Item (Join-Path $tmp "rb-tui.exe") (Join-Path $installDir "rb-tui.exe") -Force
+    Unblock-File -Path (Join-Path $installDir "rb-tui.exe") -ErrorAction SilentlyContinue
 
     if ([Environment]::OSVersion.Platform -eq "Win32NT") {
         $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -65,6 +69,11 @@ try {
     }
 
     Write-Host "==> установлено: $(Join-Path $installDir 'rb-tui.exe')"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        Write-Host "    Windows ARM64: используется x64-сборка через эмуляцию"
+    }
+    Write-Host "    бинарник не подписан: если SmartScreen предупредит,"
+    Write-Host "    нажми «Подробнее» → «Выполнить в любом случае»"
     if ([Environment]::OSVersion.Platform -eq "Win32NT") {
         & (Join-Path $installDir "rb-tui.exe") --version
     }

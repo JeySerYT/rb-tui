@@ -40,6 +40,9 @@ jobs:
           - os: macos-15
             asset: darwin-arm64
             python_setup: actions
+          - os: macos-15-intel
+            asset: darwin-x86_64
+            python_setup: actions
           - os: windows-latest
             asset: windows-x86_64
             python_setup: official
@@ -93,6 +96,22 @@ jobs:
       - name: build
         if: matrix.python_setup == 'actions'
         run: pyinstaller --clean --noconfirm packaging/rb-tui.spec
+
+      - name: smoke (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./dist/rb-tui --version
+          ./dist/rb-tui --diag > /dev/null
+
+      - name: smoke (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\dist\rb-tui.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\dist\rb-tui.exe --diag | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: package (unix)
         if: runner.os != 'Windows'

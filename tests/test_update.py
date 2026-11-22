@@ -62,6 +62,18 @@ class AssetNameTest(unittest.TestCase):
         self.assertEqual(update.asset_name("Windows", "AMD64"),
                          "rb-tui-windows-x86_64.zip")
 
+    def test_macos_intel(self):
+        self.assertEqual(update.asset_name("Darwin", "x86_64"),
+                         "rb-tui-darwin-x86_64.tar.gz")
+
+    def test_windows_on_arm_uses_x64_build(self):
+        self.assertEqual(update.asset_name("Windows", "ARM64"),
+                         "rb-tui-windows-x86_64.zip")
+
+    def test_linux_arm64(self):
+        self.assertEqual(update.asset_name("Linux", "aarch64"),
+                         "rb-tui-linux-arm64.tar.gz")
+
     def test_unsupported(self):
         with self.assertRaises(update.UpdateError):
             update.asset_name("Plan9", "x86_64")
@@ -321,6 +333,25 @@ class CheckCachedTest(unittest.TestCase):
                                side_effect=update.UpdateError("offline")):
             self.assertIsNone(update.check_cached())
         self.assertEqual(self._cache()["latest"], "1.0.0")
+
+    def test_network_error_is_cached_for_ttl(self):
+        with mock.patch.object(update, "fetch_latest",
+                               side_effect=update.UpdateError("offline")):
+            self.assertIsNone(update.check_cached())
+
+        with mock.patch.object(update, "fetch_latest") as fetch:
+            self.assertIsNone(update.check_cached())
+        fetch.assert_not_called()
+        self.assertTrue(self._cache()["error"])
+
+    def test_network_error_drops_cache_from_other_version(self):
+        self._write(checked_at=time.time() - 7200,
+                    current="0.0.1", latest="9.9.9", newer=True)
+        with mock.patch.object(update, "fetch_latest",
+                               side_effect=update.UpdateError("offline")):
+            self.assertIsNone(update.check_cached())
+        self.assertIsNone(self._cache()["latest"])
+        self.assertFalse(self._cache()["newer"])
 
 
 class NotifyTest(unittest.TestCase):

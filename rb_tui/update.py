@@ -59,6 +59,10 @@ def asset_name(system=None, machine=None):
     if not arch:
         raise UpdateError(f"неподдерживаемая архитектура: {machine}")
 
+    # Windows на ARM запускает x64-сборку через эмуляцию: отдельного архива нет.
+    if os_name == "windows" and arch == "arm64":
+        arch = "x86_64"
+
     ext = "zip" if os_name == "windows" else "tar.gz"
     return f"rb-tui-{os_name}-{arch}.{ext}"
 
@@ -187,7 +191,9 @@ def check_cached(ttl=None, timeout=CHECK_TIMEOUT):
     """Проверить обновление с кешем. None — обновлений нет или сеть недоступна.
 
     Результат живёт TTL (по умолчанию час), чтобы не упираться в лимит
-    GitHub API при частых запусках. RB_TUI_UPDATE_TTL=0 проверяет каждый раз,
+    GitHub API при частых запусках. Неудачная проверка тоже кешируется:
+    офлайн-запуск не должен каждый раз ждать таймаут.
+    RB_TUI_UPDATE_TTL=0 проверяет каждый раз,
     RB_TUI_NO_UPDATE_CHECK=1 отключает проверку полностью.
     """
     if os.environ.get("RB_TUI_NO_UPDATE_CHECK"):
@@ -205,7 +211,16 @@ def check_cached(ttl=None, timeout=CHECK_TIMEOUT):
         return data.get("latest") if data.get("newer") else None
     try:
         latest, _, _ = fetch_latest(timeout=timeout)
-    except UpdateError:
+    except UpdateError as e:
+        # Неудачу тоже кешируем: иначе каждый офлайн-запуск ждёт таймаут.
+        same_version = data.get("current") == __version__
+        _save_cache(path, {
+            "checked_at": time.time(),
+            "current": __version__,
+            "latest": data.get("latest") if same_version else None,
+            "newer": bool(data.get("newer")) if same_version else False,
+            "error": str(e)[:200],
+        })
         return None
     latest_clean = latest.lstrip("v")
     newer = is_newer(latest, __version__)
