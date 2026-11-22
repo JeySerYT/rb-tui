@@ -26,7 +26,8 @@ from rb_tui.metrics import (
     health_score,
 )
 from rb_tui.render import (
-    render_report, print_test_table, print_top, print_stats, print_info,
+    render_report, render_home, render_menu,
+    print_test_table, print_top, print_stats, print_info,
     print_history_ascii, print_trend, print_lifetime, print_anomalies,
     print_grouped_by_owner, print_filtered, print_bench_results,
     print_compare_results, print_speed_result,
@@ -48,6 +49,15 @@ def fail(message, code=1):
     print(r(message))
     console.wait_before_exit()
     sys.exit(code)
+
+
+def _ask(prompt):
+    """Опрос в интерактивном меню; None при EOF/Ctrl+C."""
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
 
 
 def reserve_probes(count, models=None):
@@ -550,27 +560,38 @@ def main():
         return
 
     # ── интерактивный режим ──
-    show()
     last_results = None
 
+    def redraw():
+        render_home(cfg_models, live, new, gone, load_metrics(), prev_date,
+                    appeared, disappeared, base, __version__)
+
+    redraw()
     while True:
-        opts = []
+        items = []
         if new:
-            opts.append(("1", f"добавить новые в конфиг ({len(new)})"))
+            items.append(("Каталог", "1", f"добавить новые в конфиг ({len(new)})"))
         if gone:
-            opts.append(("2", f"убрать пропавшие ({len(gone)})"))
-        opts.append(("3", "тест доступности"))
-        if last_results or new or gone:
-            opts.append(("4", "записать сводку проверки в лог конфига"))
-        opts.append(("q", "выход"))
-        print()
-        for k, v in opts:
-            print(dim("  [") + bold(k) + dim("] ") + v)
-        try:
-            choice = input(cy("  выбор: ")).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
+            items.append(("Каталог", "2", f"убрать пропавшие ({len(gone)})"))
+        items += [
+            ("Каталог", "3", "тест доступности (бюджет + ротация)"),
+            ("Каталог", "4", "записать сводку в лог конфига"),
+            ("Метрики", "5", "сводка и топ моделей"),
+            ("Метрики", "6", "аномалии"),
+            ("Метрики", "7", "тренд и карточка модели"),
+            ("Инструменты", "c", "проверка конфига"),
+            ("Инструменты", "d", "diff с последним бэкапом"),
+            ("Инструменты", "t", "установить тег модели"),
+            ("Инструменты", "f", "модели по тегу"),
+            ("Инструменты", "u", "проверить обновление"),
+            ("Инструменты", "n", "тест уведомлений"),
+            ("Выход", "q", "выйти"),
+        ]
+        render_menu(items)
+        answer = _ask(cy("  выбор: "))
+        if answer is None:
             break
+        choice = answer.strip().lower()
 
         if choice == "q":
             break
@@ -583,10 +604,9 @@ def main():
                                       note_date=datetime.now().strftime("%d.%m.%Y"))
                 if ok:
                     print(g(f"добавлено {len(picked)}, бэкап: {msg}"))
-                    raw, settings, cfg_models = load_config()
+                    _, _, cfg_models = load_config()
                     new = [m for m in live if m not in cfg_models]
                     gone = [m for m in cfg_models if m not in live]
-                    show()
                 else:
                     print(r(msg))
 
@@ -596,19 +616,21 @@ def main():
             if picked:
                 print(f"  действие: {c('c', '1')} закомментировать · "
                       f"{c('d', '1')} удалить · Enter отмена")
-                act = input(cy("  выбор: ")).strip().lower()
+                answer = _ask(cy("  выбор: "))
+                if answer is None:
+                    break
+                act = answer.strip().lower()
                 if act in ("c", "d"):
-                    date = datetime.now().strftime("%d.%m.%Y")
                     ok, msg = apply_edits(
                         adds=[], comment_out=picked if act == "c" else [],
-                        deletes=picked if act == "d" else [], note_date=date)
+                        deletes=picked if act == "d" else [],
+                        note_date=datetime.now().strftime("%d.%m.%Y"))
                     if ok:
                         verb = "закомментировано" if act == "c" else "удалено"
                         print(g(f"{verb} {len(picked)}, бэкап: {msg}"))
-                        raw, settings, cfg_models = load_config()
+                        _, _, cfg_models = load_config()
                         new = [m for m in live if m not in cfg_models]
                         gone = [m for m in cfg_models if m not in live]
-                        show()
                     else:
                         print(r(msg))
 
@@ -641,8 +663,65 @@ def main():
             ok, msg = append_log(lines)
             print(g(f"сводка записана в конфиг, бэкап: {msg}") if ok else r(msg))
 
+        elif choice == "5":
+            metrics = load_metrics()
+            print_stats(metrics)
+            print_top(metrics, n=10)
+
+        elif choice == "6":
+            print_anomalies(load_metrics())
+
+        elif choice == "7":
+            mid = _ask(cy("  модель: "))
+            if mid is not None and mid.strip():
+                mid = mid.strip()
+                metrics = load_metrics()
+                if mid in metrics:
+                    print_trend(mid)
+                    print_info(mid, metrics)
+                else:
+                    print(y(f"  нет данных по модели {mid}"))
+
+        elif choice == "c":
+            for issue in config_check():
+                print(f"  {issue}")
+
+        elif choice == "d":
+            print(diff_with_last_backup())
+
+        elif choice == "t":
+            mid = _ask(cy("  модель: "))
+            if mid is None:
+                break
+            tag = _ask(cy("  тег (пусто — снять): "))
+            if tag is not None:
+                set_tag(mid.strip(), tag.strip())
+                print(g(f"  тег '{tag.strip()}' установлен для {mid.strip()}"))
+
+        elif choice == "f":
+            tag = _ask(cy("  тег: "))
+            if tag is not None:
+                print_filtered(live, tag=tag.strip() or None,
+                               metrics=load_metrics())
+
+        elif choice == "u":
+            try:
+                from rb_tui import update as updater
+                latest = updater.check_cached()
+                print(y(f"  доступна v{latest} (у тебя v{__version__})")
+                      if latest else g("  обновлений нет"))
+            except Exception as e:
+                print(y(f"  проверить не удалось: {e}"))
+
+        elif choice == "n":
+            ok = test_notify()
+            print(g("  уведомление отправлено") if ok
+                  else r(f"  не удалось: {notify_hint()}"))
+
         else:
             print(y("  нет такого пункта"))
+
+        redraw()
 
     print(dim("  готово."))
 

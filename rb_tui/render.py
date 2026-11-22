@@ -48,6 +48,42 @@ def render_report(cfg_models, live, new, gone, key_ok, base, prev_date, appeared
     print()
 
 
+def render_home(cfg_models, live, new, gone, metrics, prev_date, appeared,
+                disappeared, base, version):
+    """Главный экран интерактивного режима: отчёт + строка состояния."""
+    render_report(cfg_models, live, new, gone, True, base, prev_date,
+                  appeared, disappeared)
+    models = list(metrics)
+    stable_n = sum(1 for m in models if model_status(metrics, m) == "stable")
+    unstable_n = sum(1 for m in models if model_status(metrics, m) == "unstable")
+    dead_n = sum(1 for m in models if model_status(metrics, m) == "dead")
+    checks = sum(len(metrics[m]) for m in models)
+    line = "═" * 58
+    print(dim("  " + line))
+    print(f"  {dim('health:')} {health_score(metrics)}/100   "
+          f"{g('stable:')} {stable_n}   {y('unstable:')} {unstable_n}   "
+          f"{r('dead:')} {dead_n}   {dim('проверок:')} {checks}")
+    print(dim(f"  rb-tui v{version} · {len(live)} моделей в каталоге"))
+    print(dim("  " + line))
+    print()
+
+
+def render_menu(items):
+    """Меню по группам. items — последовательность (группа, ключ, подпись)."""
+    print(dim("  " + "─" * 58))
+    current = None
+    for group, key, label in items:
+        if group != current:
+            if current is not None:
+                print()
+            print(bold(f"  {group}"))
+            current = group
+        print(f"  {bold(key)}{' ' * max(0, 3 - len(key))} {label}")
+    print(dim("  " + "─" * 58))
+    print(dim("  номер/клавиша — выбор · q — выход · Ctrl+C — отмена"))
+    print()
+
+
 def _secs(value):
     if value is None:
         return ""
