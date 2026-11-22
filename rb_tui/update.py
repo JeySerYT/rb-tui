@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -24,6 +25,8 @@ from rb_tui import __version__
 DEFAULT_REPO = "JeySerYT/rb-tui"
 USER_AGENT = f"rb-tui/{__version__}"
 TIMEOUT = 60
+DEFAULT_CHECK_TTL = 3600
+CHECK_TIMEOUT = 3
 
 
 class UpdateError(Exception):
@@ -109,11 +112,11 @@ def _request(url, timeout=TIMEOUT):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def fetch_latest():
+def fetch_latest(timeout=TIMEOUT):
     """Вернуть (версия, url_архива, url_sha256) последнего релиза."""
     url = f"https://api.github.com/repos/{repo()}/releases/latest"
     try:
-        with _request(url) as resp:
+        with _request(url, timeout=timeout) as resp:
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -137,6 +140,82 @@ def fetch_latest():
             f"в релизе {version} нет {name}.sha256 — обновление отменено"
         )
     return version, assets[name], checksum
+
+
+def _cache_path():
+    from rb_tui.utils import CACHE
+
+    return os.path.join(CACHE, "update-check.json")
+
+
+def _read_cache(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_cache(path, payload):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".update-check-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def _ttl():
+    raw = os.environ.get("RB_TUI_UPDATE_TTL", "")
+    if not raw:
+        return DEFAULT_CHECK_TTL
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_CHECK_TTL
+
+
+def check_cached(ttl=None, timeout=CHECK_TIMEOUT):
+    """Проверить обновление с кешем. None — обновлений нет или сеть недоступна.
+
+    Результат живёт TTL (по умолчанию час), чтобы не упираться в лимит
+    GitHub API при частых запусках. RB_TUI_UPDATE_TTL=0 проверяет каждый раз,
+    RB_TUI_NO_UPDATE_CHECK=1 отключает проверку полностью.
+    """
+    if os.environ.get("RB_TUI_NO_UPDATE_CHECK"):
+        return None
+    ttl = _ttl() if ttl is None else ttl
+    path = _cache_path()
+    data = _read_cache(path)
+    checked_at = data.get("checked_at")
+    fresh = (
+        isinstance(checked_at, (int, float))
+        and time.time() - checked_at < ttl
+        and data.get("current") == __version__
+    )
+    if fresh:
+        return data.get("latest") if data.get("newer") else None
+    try:
+        latest, _, _ = fetch_latest(timeout=timeout)
+    except UpdateError:
+        return None
+    latest_clean = latest.lstrip("v")
+    newer = is_newer(latest, __version__)
+    _save_cache(path, {
+        "checked_at": time.time(),
+        "current": __version__,
+        "latest": latest_clean,
+        "newer": newer,
+    })
+    return latest_clean if newer else None
 
 
 def download(url, dest):

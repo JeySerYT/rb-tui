@@ -112,6 +112,21 @@ def handle_throttle(e):
     print(y(f"  пробы на паузе {guard.human_left(left)}."))
 
 
+def notify_update_available():
+    """Показать доступное обновление при запуске standalone-бинарника."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        from rb_tui import update as updater
+
+        latest = updater.check_cached()
+    except Exception:
+        return
+    if latest:
+        print(y(f"  ↑ доступна новая версия v{latest} (у тебя v{__version__})"))
+        print(dim("    обновить: rb-tui --update"))
+
+
 def main():
     # ── парсинг аргументов ──
     import argparse
@@ -219,6 +234,8 @@ def main():
             print(r(f"  {e}"))
             sys.exit(1)
         return
+
+    notify_update_available()
 
     # ── быстрые команды без конфига ──
     if args.probe_reset:

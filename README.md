@@ -4,38 +4,45 @@
 
 ## Установка
 
-### 1. Одной командой (Linux / macOS, Python не нужен)
+### 1. Одной командой (Python не нужен)
+
+**Linux / macOS:**
 
 ```bash
 curl -fsSL https://github.com/JeySerYT/rb-tui/releases/latest/download/install.sh | sh
 ```
 
-Скрипт скачает готовый бинарник из GitHub Releases, проверит sha256 и положит
-его в `~/.local/bin`.
+**Windows (PowerShell):**
 
-- другой каталог: `RB_TUI_INSTALL_DIR=/usr/local/bin sh install.sh`
-- конкретная версия: `RB_TUI_VERSION=0.5.0-beta.1 sh install.sh`
-- если репозиторий называется иначе — поменяй `RB_TUI_REPO=owner/repo`.
+```powershell
+irm https://github.com/JeySerYT/rb-tui/releases/latest/download/install.ps1 | iex
+```
+
+Оба скрипта скачивают готовый бинарник из GitHub Releases, проверяют sha256
+и добавляют его в `PATH`.
+
+- Linux/macOS: ставится в `~/.local/bin`, другой каталог —
+  `RB_TUI_INSTALL_DIR=/usr/local/bin sh install.sh`
+- Windows: ставится в `%LOCALAPPDATA%\rb-tui\bin`, другой каталог —
+  `$env:RB_TUI_INSTALL_DIR="D:\tools"; irm ... | iex`
+- конкретная версия: `RB_TUI_VERSION=0.5.0-beta.1`
+- если репозиторий называется иначе — `RB_TUI_REPO=owner/repo`.
+
+После установки на Windows перезапусти терминал, чтобы обновился `PATH`.
 
 ### 2. Готовый бинарник вручную
 
-Со страницы **Releases** скачивается архив под свою систему:
+Если установщик недоступен, со страницы **Releases** скачивается архив под
+свою систему:
 
 `rb-tui-linux-x86_64.tar.gz`, `rb-tui-linux-arm64.tar.gz`,
 `rb-tui-darwin-arm64.tar.gz`, `rb-tui-windows-x86_64.zip`.
 
-Распаковать и положить `rb-tui` в любой каталог из `PATH`.
+Распаковать, положить `rb-tui` (или `rb-tui.exe`) в любой каталог из `PATH`.
 
-### Windows
-
-1. Скачай `rb-tui-windows-x86_64.zip` со страницы **Releases**.
-2. Распакуй `rb-tui.exe`, например, в `%USERPROFILE%\bin`.
-3. Добавь эту папку в `PATH` (Параметры → Система → О системе →
-   Дополнительные параметры системы → Переменные среды).
-4. Проверь: `rb-tui.exe --version`.
-
-`rb-tui.exe --update` скачивает новый релиз, сверяет sha256 и заменяет файл
-сразу после выхода — запускать установщик вручную не нужно.
+`rb-tui --update` скачивает новый релиз, сверяет sha256 и заменяет файл.
+На Windows замена применяется сразу после выхода — запускать установщик
+вручную не нужно.
 
 ### 3. Через uv (Python)
 
@@ -60,10 +67,16 @@ rb-tui --update-check   # узнать, есть ли новая версия
 rb-tui --update         # скачать, проверить sha256 и заменить бинарник
 ```
 
+При каждом запуске бинарник сам проверяет новую версию и пишет
+`↑ доступна новая версия` — сеть дёргается не чаще раза в час, результат
+кешируется в `~/.config/reformboss-tui/update-check.json`. Отключить проверку:
+`RB_TUI_NO_UPDATE_CHECK=1`, изменить интервал: `RB_TUI_UPDATE_TTL` в секундах
+(`0` — проверять каждый запуск).
+
 `--update` работает только для установленного бинарника (не для запуска из
 исходников), сверяет контрольную сумму из релиза, проверяет, что новый файл
-запускается, и только потом атомарно заменяет старый. На Windows закрой
-`rb-tui` перед обновлением. Другой репозиторий задаётся через `RB_TUI_REPO`.
+запускается, и только потом атомарно заменяет старый. На Windows замена
+применяется сразу после выхода. Другой репозиторий задаётся через `RB_TUI_REPO`.
 
 ## Использование
 
@@ -216,7 +229,7 @@ systemctl --user enable --now rb-tui-sync.timer
 python3 -m unittest discover -s tests -v
 ```
 
-120 тестов, без сети: пробы, API, конфиг, дашборд и самообновление подменяются
+133 теста, без сети: пробы, API, конфиг, дашборд и самообновление подменяются
 моками. Дашборд дополнительно проверяется на реальном локальном сервере (порт 0).
 
 ## Лицензия
@@ -232,9 +245,11 @@ rb-tui/
 ├── LICENSE                 # MIT
 ├── README.md               # этот файл
 ├── CHANGELOG.md
-├── install.sh              # установщик одной командой (curl | sh)
+├── install.sh              # установщик Linux/macOS (curl | sh)
+├── install.ps1             # установщик Windows (irm | iex)
 ├── packaging/rb-tui.spec   # сборка standalone-бинарника (PyInstaller)
 ├── scripts/build-binary.sh # локальная сборка бинарника
+├── scripts/release_notes.py # заметки релиза из CHANGELOG.md
 ├── .github/workflows/      # CI: тесты + релизы под 4 платформы
 ├── tests/                  # автотесты (unittest, без сети)
 ├── rb_tui/

@@ -139,5 +139,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp install.sh out/install.sh
-          gh release create "${GITHUB_REF_NAME}" --generate-notes out/*
+          cp install.sh install.ps1 out/
+          if python scripts/release_notes.py "${GITHUB_REF_NAME}" > "$RUNNER_TEMP/notes.md"; then
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
+              --notes-file "$RUNNER_TEMP/notes.md" out/*
+          else
+            echo "в CHANGELOG.md нет секции для ${GITHUB_REF_NAME}, беру автозаметки"
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
+              --generate-notes out/*
+          fi

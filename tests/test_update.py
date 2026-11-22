@@ -2,9 +2,11 @@
 
 import hashlib
 import io
+import json
 import os
 import tarfile
 import tempfile
+import time
 import unittest
 import zipfile
 from unittest import mock
@@ -241,6 +243,109 @@ class WindowsReplaceTest(unittest.TestCase):
         self.assertTrue(os.path.exists(staged))
         with open(target, "rb") as f:
             self.assertEqual(f.read(), b"old")
+
+
+class CheckCachedTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "update-check.json")
+        patcher = mock.patch.object(update, "_cache_path", return_value=self.path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        env = mock.patch.dict(os.environ, {}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("RB_TUI_NO_UPDATE_CHECK", None)
+        os.environ.pop("RB_TUI_UPDATE_TTL", None)
+
+    def _write(self, **payload):
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+    def _cache(self):
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_disabled_by_env(self):
+        os.environ["RB_TUI_NO_UPDATE_CHECK"] = "1"
+        with mock.patch.object(update, "fetch_latest") as fetch:
+            self.assertIsNone(update.check_cached())
+        fetch.assert_not_called()
+
+    def test_fresh_cache_returns_newer_without_network(self):
+        self._write(checked_at=time.time(), current=update.__version__,
+                    latest="9.9.9", newer=True)
+        with mock.patch.object(update, "fetch_latest") as fetch:
+            self.assertEqual(update.check_cached(), "9.9.9")
+        fetch.assert_not_called()
+
+    def test_fresh_cache_without_update_returns_none(self):
+        self._write(checked_at=time.time(), current=update.__version__,
+                    latest=update.__version__, newer=False)
+        with mock.patch.object(update, "fetch_latest") as fetch:
+            self.assertIsNone(update.check_cached())
+        fetch.assert_not_called()
+
+    def test_stale_cache_refetches_and_saves(self):
+        self._write(checked_at=time.time() - 7200,
+                    current=update.__version__, latest="0.0.1", newer=False)
+        with mock.patch.object(update, "fetch_latest",
+                               return_value=("v9.9.9", "a", "b")):
+            self.assertEqual(update.check_cached(), "9.9.9")
+        saved = self._cache()
+        self.assertTrue(saved["newer"])
+        self.assertEqual(saved["latest"], "9.9.9")
+        self.assertEqual(saved["current"], update.__version__)
+
+    def test_cache_from_other_version_is_ignored(self):
+        self._write(checked_at=time.time(), current="0.0.1",
+                    latest="9.9.9", newer=True)
+        with mock.patch.object(update, "fetch_latest",
+                               return_value=(update.__version__, "a", "b")):
+            self.assertIsNone(update.check_cached())
+        self.assertFalse(self._cache()["newer"])
+
+    def test_ttl_zero_always_refetches(self):
+        self._write(checked_at=time.time(), current=update.__version__,
+                    latest="9.9.9", newer=True)
+        with mock.patch.object(update, "fetch_latest",
+                               return_value=("v9.9.9", "a", "b")) as fetch:
+            self.assertEqual(update.check_cached(ttl=0), "9.9.9")
+        fetch.assert_called_once()
+
+    def test_network_error_returns_none_and_keeps_cache(self):
+        self._write(checked_at=time.time() - 7200,
+                    current=update.__version__, latest="1.0.0", newer=False)
+        with mock.patch.object(update, "fetch_latest",
+                               side_effect=update.UpdateError("offline")):
+            self.assertIsNone(update.check_cached())
+        self.assertEqual(self._cache()["latest"], "1.0.0")
+
+
+class NotifyTest(unittest.TestCase):
+    def test_frozen_binary_prints_notice(self):
+        from rb_tui import cli
+
+        buf = io.StringIO()
+        with mock.patch.object(cli.sys, "frozen", True, create=True), \
+                mock.patch("rb_tui.update.check_cached", return_value="9.9.9"), \
+                mock.patch("sys.stdout", buf):
+            cli.notify_update_available()
+        out = buf.getvalue()
+        self.assertIn("9.9.9", out)
+        self.assertIn("--update", out)
+
+    def test_source_run_is_silent(self):
+        from rb_tui import cli
+
+        buf = io.StringIO()
+        with mock.patch.object(cli.sys, "frozen", False, create=True), \
+                mock.patch("rb_tui.update.check_cached") as check, \
+                mock.patch("sys.stdout", buf):
+            cli.notify_update_available()
+        check.assert_not_called()
+        self.assertEqual(buf.getvalue(), "")
 
 
 if __name__ == "__main__":
