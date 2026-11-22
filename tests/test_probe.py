@@ -101,6 +101,29 @@ class ProbeWithMetricsTest(unittest.TestCase):
         self.assertEqual(once.call_count, 1)
 
 
+class EffectiveTpsTest(unittest.TestCase):
+    def test_uses_whole_response_time(self):
+        r = {"status": "OK", "ttft": 1.0, "tts": 1.2, "total": 2.0,
+             "tokens": 20, "chars": 80}
+        self.assertEqual(probe.effective_tps(r), 10.0)
+
+    def test_matches_metrics_formula(self):
+        from rb_tui import metrics
+        r = {"status": "OK", "ttft": 0.8, "tts": 1.1, "total": 2.4,
+             "tokens": 17, "chars": 60}
+        data = metrics.add_metric({}, "m", "OK", r["ttft"], r["total"],
+                                  r["tokens"], tts=r["tts"])
+        self.assertEqual(probe.effective_tps(r), data["m"][-1]["tps"])
+
+    def test_none_without_stream_metrics(self):
+        self.assertIsNone(probe.effective_tps(
+            {"status": "OK", "ttft": 1.0, "tts": None, "total": 1.0,
+             "tokens": 4, "chars": 10}))
+        self.assertIsNone(probe.effective_tps(
+            {"status": "OK", "ttft": 1.0, "tts": 1.1, "total": 0,
+             "tokens": 0, "chars": 0}))
+
+
 class ReadStreamTest(unittest.TestCase):
     def test_parses_ttft_tts_usage(self):
         lines = [
@@ -112,12 +135,14 @@ class ReadStreamTest(unittest.TestCase):
         ]
         clock = iter([10.0, 10.2, 10.9])
         with mock.patch.object(probe.time, "monotonic", side_effect=lambda: next(clock)):
-            ttft, tts, total, tokens = probe._read_stream(lines, 0.0)
+            ttft, tts, total, tokens, chars, content = probe._read_stream(lines, 0.0)
 
         self.assertEqual(ttft, 10.0)
         self.assertEqual(tts, 10.2)
         self.assertEqual(total, 10.9)
         self.assertEqual(tokens, 2)  # контент-чанки, без usage промпта
+        self.assertEqual(chars, 2)
+        self.assertEqual(content, "ok")
 
     def test_falls_back_when_stream_unsupported(self):
         class FakeResponse:

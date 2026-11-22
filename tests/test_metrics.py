@@ -1,6 +1,10 @@
 """Тесты метрик: запись, обрезка истории, статусы, агрегаты."""
 
+import json
+import os
+import tempfile
 import unittest
+from unittest import mock
 
 from rb_tui import metrics
 
@@ -108,6 +112,88 @@ class AggregatesTest(unittest.TestCase):
         self.assertEqual(stats["ok"], 1)
         self.assertEqual(stats["err"], 1)
         self.assertEqual(stats["success_rate"], 50)
+
+
+class HistoryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.log = os.path.join(self.tmp.name, "metrics.jsonl")
+        self.hot = os.path.join(self.tmp.name, "metrics.json")
+        for patcher in (
+            mock.patch.object(metrics, "METRICS_LOG", self.log),
+            mock.patch.object(metrics, "METRICS_HISTORY", self.hot),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_record_metric_appends_full_history(self):
+        data = metrics.record_metric(
+            {}, "m", "OK", 1.0, 2.0, 10, fingerprint="fp1", tts=1.2,
+        )
+        metrics.record_metric(
+            data, "m", "OK", 1.0, 2.0, 10, fingerprint="fp2", tts=1.2,
+        )
+        history = metrics.load_history("m")
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["model"], "m")
+        self.assertEqual(history[1]["fp"], "fp2")
+
+    def test_marks_fingerprint_change(self):
+        data = metrics.record_metric({}, "m", "OK", 1.0, 1.0, 3, fingerprint="a")
+        data = metrics.record_metric(data, "m", "OK", 1.0, 1.0, 3, fingerprint="b")
+        self.assertEqual(data["m"][-1]["fp_changed"], {"from": "a", "to": "b"})
+
+    def test_prune_history_removes_old_entries(self):
+        lines = [
+            {"ts": "2000-01-01 00:00", "model": "m", "status": "OK"},
+            {"ts": "2999-01-01 00:00", "model": "m", "status": "OK"},
+        ]
+        with open(self.log, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        metrics.save_metrics({"m": [
+            dict(lines[0]), dict(lines[1]),
+        ]})
+        kept, removed = metrics.prune_history(days=1)
+        self.assertEqual((kept, removed), (1, 1))
+        self.assertEqual(len(metrics.load_history()), 1)
+        self.assertEqual(len(metrics.load_metrics()["m"]), 1)
+
+
+class AnomaliesTest(unittest.TestCase):
+    def _ok(self, **kw):
+        entry = dict(ok_entry(), **kw)
+        return entry
+
+    def test_requires_absolute_ttft_delta(self):
+        data = {"m": [self._ok(ttft=0.1), self._ok(ttft=0.1),
+                      self._ok(ttft=0.2), self._ok(ttft=0.2)]}
+        types = [a["type"] for a in metrics.find_anomalies(data)]
+        self.assertNotIn("ttft_spike", types)
+
+    def test_detects_tts_spike(self):
+        data = {"m": [self._ok(tts=1.0), self._ok(tts=1.0),
+                      self._ok(tts=1.0), self._ok(tts=3.0)]}
+        types = [a["type"] for a in metrics.find_anomalies(data)]
+        self.assertIn("tts_spike", types)
+
+    def test_detects_tps_drop(self):
+        data = {"m": [self._ok(tps=20.0), self._ok(tps=20.0),
+                      self._ok(tps=20.0), self._ok(tps=2.0)]}
+        types = [a["type"] for a in metrics.find_anomalies(data)]
+        self.assertIn("tps_drop", types)
+
+    def test_detects_fingerprint_change(self):
+        data = {"m": [
+            self._ok(fp="a"), self._ok(fp="a"),
+            self._ok(fp="b", fp_changed={"from": "a", "to": "b"}),
+            self._ok(fp="b"),
+        ]}
+        found = [a for a in metrics.find_anomalies(data)
+                 if a["type"] == "fingerprint_change"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["from"], "a")
+        self.assertEqual(found[0]["to"], "b")
 
 
 if __name__ == "__main__":

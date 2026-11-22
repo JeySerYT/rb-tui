@@ -3,11 +3,10 @@
 import json
 import os
 import re
-import shutil
 from datetime import datetime
 
 from rb_tui.utils import (
-    CONFIG, CACHE, strip_jsonc, parse_ok, pretty_name, backup_config,
+    CONFIG, CACHE, STATE, strip_jsonc, parse_ok, pretty_name, backup_config, atomic_write,
 )
 
 
@@ -19,23 +18,20 @@ def read_raw():
 def load_config():
     raw = read_raw()
     data = json.loads(strip_jsonc(raw))
-    prov = data.get("providers", {}).get("reformboss", {})
+    container = data.get("providers") or data.get("provider") or {}
+    prov = container.get("reformboss", {})
     settings = prov.get("settings", {})
     models = prov.get("models", {}) or {}
     return raw, settings, list(models.keys())
 
 
-def find_models_span(raw):
-    """Найти границы блока 'models' в JSONC."""
-    m = re.search(r'"models"\s*:\s*\{', raw)
-    if not m:
-        return None
-    open_idx = raw.rindex("{", m.start(), m.end())
+def _scan_object_end(raw, open_idx):
+    """Индекс закрывающей скобки для объекта, начинающегося с open_idx."""
     depth, i, n, ins = 0, open_idx, len(raw), False
     while i < n:
         ch = raw[i]
         if ins:
-            if ch == "\\":
+            if ch == "\\" and i + 1 < n:
                 i += 2
                 continue
             if ch == '"':
@@ -59,9 +55,42 @@ def find_models_span(raw):
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return open_idx, i
+                return i
         i += 1
     return None
+
+
+def find_models_span(raw):
+    """Найти границы блока providers.reformboss.models в JSONC.
+
+    Именно reformboss, а не первый попавшийся "models": иначе при нескольких
+    провайдерах правки уйдут в чужой конфиг. Если структуру найти не удалось,
+    откатываемся к старому поведению (первый блок models).
+    """
+    top = re.search(r'"(?:providers|provider)"\s*:\s*\{', raw)
+    if top:
+        top_open = raw.index("{", top.start())
+        top_end = _scan_object_end(raw, top_open)
+        if top_end is not None:
+            section = raw[top_open:top_end]
+            rm = re.search(r'"reformboss"\s*:\s*\{', section)
+            if rm:
+                prov_open = raw.index("{", top_open + rm.start())
+                prov_end = _scan_object_end(raw, prov_open)
+                if prov_end is not None:
+                    prov = raw[prov_open:prov_end]
+                    mm = re.search(r'"models"\s*:\s*\{', prov)
+                    if mm:
+                        models_open = raw.index("{", prov_open + mm.start())
+                        models_end = _scan_object_end(raw, models_open)
+                        if models_end is not None:
+                            return models_open, models_end
+
+    m = re.search(r'"models"\s*:\s*\{', raw)
+    if not m:
+        return None
+    open_idx = raw.index("{", m.start())
+    return open_idx, _scan_object_end(raw, open_idx)
 
 
 def indent_of_entry(raw, open_idx):
@@ -123,8 +152,7 @@ def apply_edits(adds, comment_out, deletes, note_date):
         return False, "правка сломала JSON, откат (файл не тронут)"
 
     bak = backup_config()
-    with open(CONFIG, "w", encoding="utf-8") as f:
-        f.write(new_raw)
+    atomic_write(CONFIG, new_raw)
     return True, bak
 
 
@@ -141,8 +169,7 @@ def append_log(lines):
     if not parse_ok(new_raw):
         return False, "лог ломает JSON, откат"
     bak = backup_config()
-    with open(CONFIG, "w", encoding="utf-8") as f:
-        f.write(new_raw)
+    atomic_write(CONFIG, new_raw)
     return True, bak
 
 
@@ -171,7 +198,7 @@ def diff_with_last_backup():
 
 
 def config_check():
-    """Проверить конфиг на проблемы: дубликаты, битые модели."""
+    """Проверить конфиг на проблемы: структуру, ключ, права, битые модели."""
     issues = []
     raw = read_raw()
 
@@ -181,28 +208,96 @@ def config_check():
     except json.JSONDecodeError as e:
         return [f"❌ JSON сломан: {e}"]
 
-    prov = data.get("providers", {}).get("reformboss", {})
-    models = prov.get("models", {}) or {}
+    if not find_models_span(raw):
+        issues.append("❌ Не найден блок providers.reformboss.models")
 
-    # Дубликаты (по имени)
+    container = data.get("providers") or data.get("provider") or {}
+    prov = container.get("reformboss", {})
+    if not prov:
+        issues.append("❌ Нет провайдера reformboss")
+    models = prov.get("models", {}) or {}
+    if not isinstance(models, dict):
+        issues.append("❌ reformboss.models должен быть объектом")
+        models = {}
+
+    # Дубликаты (по имени, без учёта регистра)
     seen = {}
     for mid in models:
         normal = mid.lower().strip()
         if normal in seen:
             issues.append(f"⚠ Дубликат: '{mid}' — уже есть как '{seen[normal]}'")
         seen[normal] = mid
+        if not mid.strip():
+            issues.append("⚠ Пустой идентификатор модели")
+        elif mid != mid.strip():
+            issues.append(f"⚠ Пробелы по краям в имени модели: '{mid}'")
 
-    # Пустые настройки
+    # Настройки
     settings = prov.get("settings", {})
-    if not settings.get("apiKey"):
-        issues.append("❌ Нет apiKey в настройках reformboss")
-    if not settings.get("baseURL"):
-        issues.append("❌ Нет baseURL в настройках reformboss")
+    if not isinstance(settings, dict):
+        issues.append("❌ reformboss.settings должен быть объектом")
+        settings = {}
 
-    # Модели без name (если есть другие поля — норм)
+    api_key = settings.get("apiKey")
+    if not api_key:
+        issues.append("❌ Нет apiKey в настройках reformboss")
+    else:
+        m = re.match(r"\{file:(.+)\}", str(api_key))
+        if m:
+            key_path = os.path.expanduser(m.group(1))
+            if not os.path.isfile(key_path):
+                issues.append(f"❌ Файл с ключом не найден: {key_path}")
+            else:
+                try:
+                    mode = os.stat(key_path).st_mode
+                    if mode & 0o077:
+                        issues.append(
+                            f"⚠ Файл с ключом доступен группе/остальным "
+                            f"({oct(mode & 0o777)}): chmod 600 {key_path}"
+                        )
+                except OSError:
+                    pass
+        else:
+            try:
+                mode = os.stat(CONFIG).st_mode
+                if mode & 0o004:
+                    issues.append(
+                        f"⚠ apiKey лежит прямо в конфиге, а файл читают все "
+                        f"({oct(mode & 0o777)}): chmod 600 {CONFIG}"
+                    )
+            except OSError:
+                pass
+
+    base = settings.get("baseURL", "")
+    if not base:
+        issues.append("❌ Нет baseURL в настройках reformboss")
+    elif not re.match(r"^https?://", str(base)):
+        issues.append(f"⚠ baseURL не похож на URL: {base}")
+
+    # Модели без name / с пустым name
     for mid, val in models.items():
-        if isinstance(val, dict) and "name" not in val:
+        if not isinstance(val, dict):
+            issues.append(f"⚠ Модель '{mid}' должна быть объектом")
+            continue
+        if "name" not in val:
             issues.append(f"⚠ Модель '{mid}' без поля name")
+        elif not str(val.get("name", "")).strip():
+            issues.append(f"⚠ Модель '{mid}' с пустым name")
+
+    # Сверка с последним сохранённым каталогом (без сети)
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            catalog = json.load(f).get("models") or []
+        if catalog:
+            absent = [m for m in models if m not in catalog]
+            if absent:
+                issues.append(
+                    f"⚠ {len(absent)} моделей из конфига нет в последнем каталоге "
+                    f"(мог устареть): {', '.join(absent[:5])}"
+                    + (" …" if len(absent) > 5 else "")
+                )
+    except Exception:
+        pass
 
     if not issues:
         issues.append("✅ Конфиг в порядке")

@@ -8,8 +8,24 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: compile
+        run: python -m compileall -q rb_tui
+
+      - name: run tests
+        run: python -m unittest discover -s tests -v
+
   build:
     name: build ${{ matrix.asset }}
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

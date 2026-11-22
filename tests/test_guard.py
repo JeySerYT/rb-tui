@@ -52,6 +52,27 @@ class GuardTest(unittest.TestCase):
             self.assertEqual(guard.daily_remaining(), 0)
             self.assertEqual(guard.clamp_budget(10), 0)
 
+    def test_reserve_counts_every_request(self):
+        ok, msg = guard.reserve(3, ["a"])
+        self.assertTrue(ok, msg)
+        self.assertEqual(guard.daily_used(), 3)
+        self.assertEqual(guard.load_state()["total_probes"], 3)
+        self.assertIn("a", guard.load_state()["last_probe"])
+
+    def test_reserve_refuses_over_daily_limit_without_spending(self):
+        with mock.patch.object(guard, "DEFAULT_DAILY_BUDGET", 2):
+            ok, msg = guard.reserve(3, ["a"])
+        self.assertFalse(ok)
+        self.assertIn("лимит", msg)
+        self.assertEqual(guard.daily_used(), 0)
+
+    def test_reserve_refuses_during_cooldown(self):
+        guard.set_cooldown(60, "catalog_probe_detected")
+        ok, msg = guard.reserve(1, ["a"])
+        self.assertFalse(ok)
+        self.assertIn("паузе", msg)
+        self.assertEqual(guard.daily_used(), 0)
+
     def test_daily_counter_resets_on_new_day(self):
         guard.mark_probed(["a"])
         state = guard.load_state()

@@ -1,10 +1,8 @@
 """CLI-диспетчер: главная точка входа для rb-tui."""
 
-import json
 import os
 import sys
 import time
-import urllib.request
 from datetime import datetime
 
 from rb_tui import __version__
@@ -17,36 +15,44 @@ from rb_tui.config import (
 )
 from rb_tui.api import api_key, fetch_catalog
 from rb_tui import guard
-from rb_tui.probe import probe_with_metrics, probe_all, speed_test, compare_models, ProbeThrottled
+from rb_tui.probe import (
+    probe_with_metrics, probe_all, speed_test, compare_models, bench_model,
+    ProbeThrottled,
+)
 from rb_tui.metrics import (
-    load_metrics, save_metrics, add_metric, model_status,
-    avg_ttft, success_rate, full_stats, lifetime, health_score,
+    load_metrics, save_metrics, record_metric,
+    prune_history, model_status, avg_ttft, success_rate, full_stats, lifetime,
+    health_score,
 )
 from rb_tui.render import (
     render_report, print_test_table, print_top, print_stats, print_info,
-    print_history_ascii, print_lifetime, print_anomalies,
+    print_history_ascii, print_trend, print_lifetime, print_anomalies,
     print_grouped_by_owner, print_filtered, print_bench_results,
     print_compare_results, print_speed_result,
 )
-from rb_tui.sync import auto_sync, save_catalog, load_prev_catalog, auto_cleanup, auto_rollback
+from rb_tui.sync import (
+    auto_sync, save_catalog, load_prev_catalog, load_catalog_owned,
+    auto_cleanup, auto_rollback,
+)
 from rb_tui.alerts import (
     desktop_notify, notify_new_models, notify_stable_to_dead, notify_anomalies,
-    send_webhook, build_webhook_payload,
+    send_webhook, build_webhook_payload, test_notify, webhook_format,
 )
 from rb_tui.export import export_json, export_csv, export_html
 from rb_tui.dashboard import serve
 
 
-def probes_allowed():
-    """Общая проверка: не в cooldown ли пробы."""
-    line = guard.cooldown_status_line()
-    if line:
-        print(y("  ⏸ " + line))
+def reserve_probes(count, models=None):
+    """Проверить cooldown и суточный бюджет, затем списать запросы."""
+    ok, msg = guard.reserve(count, models)
+    if not ok:
+        prefix = "  ⏸ " if "на паузе" in msg else "  "
+        print(y(prefix + msg))
         return False
     return True
 
 
-def run_probe_cycle(base, key, live, budget=None, progress=False):
+def run_probe_cycle(base, key, live, budget=None, progress=False, verbose=True):
     """Безопасный цикл проб: cooldown → ротация → порция → стоп на детекте.
 
     Возвращает (results, throttled). results is None, если пробы на паузе.
@@ -55,22 +61,26 @@ def run_probe_cycle(base, key, live, budget=None, progress=False):
     """
     line = guard.cooldown_status_line()
     if line:
-        print(y("  ⏸ " + line))
+        if verbose:
+            print(y("  ⏸ " + line))
         return None, False
 
     budget = guard.DEFAULT_BUDGET if budget is None else budget
     if guard.daily_remaining() <= 0:
-        print(y(f"  суточный лимит проб исчерпан ({guard.DEFAULT_DAILY_BUDGET}), "
-                f"продолжу завтра"))
+        if verbose:
+            print(y(f"  суточный лимит проб исчерпан ({guard.DEFAULT_DAILY_BUDGET}), "
+                    f"продолжу завтра"))
         return [], False
     budget = guard.clamp_budget(budget)
     targets = guard.pick_targets(live, budget=budget)
     if not targets:
-        print(dim("  в каталоге нет моделей для проверки"))
+        if verbose:
+            print(dim("  в каталоге нет моделей для проверки"))
         return [], False
 
-    print(dim(f"  проверяю {len(targets)} из {len(live)} моделей каталога "
-              f"(пауза {guard.DEFAULT_DELAY:g}с, ротация)"))
+    if verbose:
+        print(dim(f"  проверяю {len(targets)} из {len(live)} моделей каталога "
+                  f"(пауза {guard.DEFAULT_DELAY:g}с, ротация)"))
 
     throttled = False
     try:
@@ -86,11 +96,20 @@ def run_probe_cycle(base, key, live, budget=None, progress=False):
     if results:
         metrics = load_metrics()
         for mid, status, ttft, tts, total, tokens, fp, msg in results:
-            metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts)
+            metrics = record_metric(
+                metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts,
+            )
         save_metrics(metrics)
         guard.mark_probed([r[0] for r in results])
 
     return results, throttled
+
+
+def handle_throttle(e):
+    """Остановиться, уйти в cooldown и объяснить это пользователю."""
+    left = guard.set_cooldown(reason=str(e.msg)[:80])
+    print(r(f"  ⛔ API включил защиту: {e.msg}"))
+    print(y(f"  пробы на паузе {guard.human_left(left)}."))
 
 
 def main():
@@ -115,7 +134,12 @@ def main():
                         help="Снять паузу проб (cooldown)")
 
     parser.add_argument("--top", nargs="?", const=10, type=int, default=None,
-                        help="Топ N моделей по TTFT (по умолч. 10)")
+                        help="Топ N моделей (по умолч. 10)")
+    parser.add_argument("--sort", choices=["ttft", "tps", "rate", "combined"],
+                        default="ttft",
+                        help="Сортировка для --top: ttft, tps, rate, combined")
+    parser.add_argument("--trend", type=str, default=None, metavar="MODEL",
+                        help="Тренд TTFT/TTS/TPS по полной истории")
     parser.add_argument("--stats", action="store_true", help="Общая статистика")
     parser.add_argument("--json", nargs="?", const="", type=str, default=None,
                         help="Экспорт метрик в JSON (без пути — в stdout)")
@@ -140,6 +164,10 @@ def main():
     parser.add_argument("--config-check", action="store_true", help="Проверить конфиг")
     parser.add_argument("--prune-backups", nargs="?", const=30, type=int, default=None,
                         help="Удалить бэкапы старше N дней (по умолч. 30)")
+    parser.add_argument("--prune-metrics", nargs="?", const=90, type=int, default=None,
+                        help="Удалить историю метрик старше N дней (по умолч. 90)")
+    parser.add_argument("--test-notify", action="store_true",
+                        help="Проверить desktop-уведомления")
     parser.add_argument("--fuzzy", type=str, default=None, metavar="QUERY",
                         help="Поиск/рекомендация модели")
     parser.add_argument("--filter", type=str, default=None, metavar="TAG",
@@ -150,15 +178,46 @@ def main():
     parser.add_argument("--tag", nargs=2, type=str, default=None, metavar=("MODEL", "TAG"),
                         help="Установить тег модели")
     parser.add_argument("--watch", action="store_true", help="Режим наблюдения (каждые N сек)")
+    parser.add_argument("--watch-interval", type=int, default=300, metavar="SEC",
+                        help="Интервал --watch в секундах (по умолч. 300)")
+    parser.add_argument("--watch-runs", type=int, default=0, metavar="N",
+                        help="Сколько циклов --watch выполнить (0 — бесконечно)")
     parser.add_argument("--anomalies", action="store_true", help="Найти аномалии")
     parser.add_argument("--group-by-owner", action="store_true", help="Группировка по провайдеру")
     parser.add_argument("--webhook", type=str, default=None, metavar="URL",
                         help="URL вебхука для отправки сводки")
+    parser.add_argument("--update", action="store_true",
+                        help="Обновить standalone-бинарник до последнего релиза")
+    parser.add_argument("--update-check", action="store_true",
+                        help="Проверить, есть ли новая версия")
 
     args = parser.parse_args()
 
     if args.version:
         print(f"rb-tui v{__version__}")
+        return
+
+    if args.update_check:
+        from rb_tui import update as updater
+        try:
+            current, latest, newer = updater.check()
+        except updater.UpdateError as e:
+            print(r(f"  {e}"))
+            sys.exit(1)
+        if newer:
+            print(y(f"  есть новая версия: v{current} → v{latest}"))
+            print(dim("  обновить: rb-tui --update"))
+        else:
+            print(g(f"  уже последняя версия: v{current}"))
+        return
+
+    if args.update:
+        from rb_tui import update as updater
+        try:
+            updater.update(progress=lambda msg: print(msg))
+        except updater.UpdateError as e:
+            print(r(f"  {e}"))
+            sys.exit(1)
         return
 
     # ── быстрые команды без конфига ──
@@ -170,6 +229,18 @@ def main():
     if args.prune_backups is not None:
         removed = prune_backups(days=args.prune_backups)
         print(f"  удалено {removed} бэкапов старше {args.prune_backups} дней")
+        return
+
+    if args.prune_metrics is not None:
+        kept, removed = prune_history(days=args.prune_metrics)
+        print(f"  история: оставлено {kept}, удалено {removed} записей "
+              f"старше {args.prune_metrics} дней")
+        return
+
+    if args.test_notify:
+        ok = test_notify()
+        print(g("  уведомление отправлено") if ok
+              else r("  не удалось: проверь notify-send и права на DBus"))
         return
 
     if not os.path.isfile(CONFIG):
@@ -218,6 +289,10 @@ def main():
         print_history_ascii(args.history, metrics)
         return
 
+    if args.trend:
+        print_trend(args.trend)
+        return
+
     if args.lifetime:
         metrics = load_metrics()
         print_lifetime(metrics)
@@ -235,7 +310,7 @@ def main():
 
     if args.top is not None:
         metrics = load_metrics()
-        print_top(metrics, n=args.top)
+        print_top(metrics, n=args.top, sort_by=args.sort)
         return
 
     if args.json is not None:
@@ -264,7 +339,7 @@ def main():
 
     if args.group_by_owner:
         metrics = load_metrics()
-        print_grouped_by_owner(metrics)
+        print_grouped_by_owner(metrics, owned=load_catalog_owned())
         return
 
     if args.tag:
@@ -291,32 +366,45 @@ def main():
         return
 
     if args.bench:
-        if not probes_allowed():
+        if not reserve_probes(3, [args.bench]):
             return
-        _cmd_bench(base, key, args.bench)
+        try:
+            _cmd_bench(base, key, args.bench)
+        except ProbeThrottled as e:
+            handle_throttle(e)
         return
 
     if args.compare:
-        if not probes_allowed():
+        if not reserve_probes(6, args.compare):
             return
-        _cmd_compare(base, key, args.compare[0], args.compare[1])
+        try:
+            _cmd_compare(base, key, args.compare[0], args.compare[1])
+        except ProbeThrottled as e:
+            handle_throttle(e)
         return
 
     if args.speed:
-        if not probes_allowed():
+        if not reserve_probes(1, [args.speed]):
             return
-        _cmd_speed(base, key, args.speed)
+        try:
+            _cmd_speed(base, key, args.speed)
+        except ProbeThrottled as e:
+            handle_throttle(e)
         return
 
     if args.webhook:
         metrics = load_metrics()
-        payload = build_webhook_payload(metrics)
+        fmt = webhook_format(args.webhook)
+        payload = build_webhook_payload(metrics, fmt=fmt)
         ok = send_webhook(args.webhook, payload)
         print(g("вебхук отправлен") if ok else r("ошибка вебхука"))
         return
 
     if args.watch:
-        _cmd_watch(base, key)
+        _cmd_watch(
+            base, key, interval=args.watch_interval,
+            runs=args.watch_runs, budget=args.probe_budget,
+        )
         return
 
     # ── fetch catalog ──
@@ -334,7 +422,7 @@ def main():
     else:
         appeared = [m for m in live if m not in prev]
         disappeared = [m for m in prev if m not in live]
-    save_catalog(live)
+    save_catalog(live, owned)
 
     # ── --probe-model ──
     if args.probe_model:
@@ -357,7 +445,9 @@ def main():
             print(y(f"  пробы на паузе {guard.human_left(left)}, метрика не записана"))
             return
         metrics = load_metrics()
-        metrics = add_metric(metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts)
+        metrics = record_metric(
+            metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts,
+        )
         save_metrics(metrics)
         guard.mark_probed([mid])
         tts_s = f"  tts={tts}" if tts is not None else ""
@@ -554,40 +644,16 @@ def _cmd_fuzzy(query, metrics):
 
 
 def _cmd_bench(base, key, model_id):
-    """Бенчмарк модели на нескольких задачах."""
-    from rb_tui.probe import probe_with_metrics
+    """Бенчмарк модели на нескольких задачах (стриминговый замер)."""
     prompts = [
         "Write a Python function to merge two sorted lists.",
         "Explain the difference between TCP and UDP in simple terms.",
         "Write a short poem about artificial intelligence.",
     ]
-
     print(bold(f"  БЕНЧМАРК: {model_id}"))
     print(dim(f"  тестирую на {len(prompts)} промптах..."))
-
-    for i, prompt in enumerate(prompts, 1):
-        body = json.dumps({
-            "model": model_id,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 200,
-        }).encode()
-        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
-        req = urllib.request.Request(
-            base.rstrip("/") + "/chat/completions", data=body, headers=headers)
-        start = time.monotonic()
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read()
-            total = round(time.monotonic() - start, 3)
-            j = json.loads(raw)
-            content = j.get("choices", [{}])[0].get("message", {}).get("content", "")
-            tokens = j.get("usage", {}).get("total_tokens", 0)
-            tps = round(tokens / total, 2) if total > 0 else 0
-            print(f"  #{i} {dim(str(total) + 's')} TTFT={total}s tok={tokens} speed={tps} tok/s")
-            print(f"    {dim(content[:120] + '...' if len(content) > 120 else content)}")
-        except Exception as e:
-            print(f"  #{i} {r('ошибка: ' + str(e)[:60])}")
-    print()
+    rows = bench_model(base, key, model_id, prompts=prompts)
+    print_bench_results(rows, model_id)
 
 
 def _cmd_compare(base, key, model_a, model_b):
@@ -602,33 +668,44 @@ def _cmd_speed(base, key, model_id):
     print_speed_result(model_id, tps, err)
 
 
-def _cmd_watch(base, key, interval=300):
+def _cmd_watch(base, key, interval=300, runs=0, budget=None):
     """Режим наблюдения: каждые N секунд обновлять статус порцией моделей."""
     from rb_tui.metrics import load_metrics, model_status
 
     print(bold("  WATCH MODE"))
-    print(dim(f"  обновление каждые {interval} сек, Ctrl+C для выхода"))
+    limit = f", {runs} циклов" if runs > 0 else ""
+    print(dim(f"  обновление каждые {interval} сек{limit}, Ctrl+C для выхода"))
     print()
 
+    done = 0
     try:
-        while True:
+        while runs <= 0 or done < runs:
+            done += 1
             live, _, err = fetch_catalog(base, key)
             if live is None:
                 print(r(f"  каталог недоступен: {err}"))
+                if runs > 0 and done >= runs:
+                    break
                 time.sleep(interval)
                 continue
 
-            results, _throttled = run_probe_cycle(base, key, live, progress=False)
+            results, _throttled = run_probe_cycle(
+                base, key, live, budget=budget, progress=False, verbose=False)
 
             ts = datetime.now().strftime("%H:%M:%S")
             if results is None:
-                print(f"  [{ts}] пробы на паузе")
+                line = guard.cooldown_status_line() or "пробы на паузе"
+                print(f"  [{ts}] {y(line)}")
+            elif not results:
+                print(f"  [{ts}] {dim('нет моделей для проверки')}")
             else:
                 metrics = load_metrics()
                 ok = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
                 stable = sum(1 for r_ in results if model_status(metrics, r_[0]) == "stable")
                 print(f"  [{ts}] {g(str(ok))}/{len(results)} живых, {g(str(stable))} stable")
 
+            if runs > 0 and done >= runs:
+                break
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\n  watch остановлен")

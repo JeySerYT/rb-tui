@@ -1,30 +1,44 @@
 """HTTP-дашборд: --serve"""
 
 import json
+import time
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
-from rb_tui.dashboard_view import build_view
+from rb_tui import __version__
+from rb_tui.dashboard_view import build_view, build_model_detail
 from rb_tui.metrics import (
-    load_metrics, full_stats, health_score,
+    load_metrics, load_history, full_stats, health_score,
 )
+from rb_tui.export import export_csv, export_json
+from rb_tui.sync import load_catalog_owned
+from rb_tui.utils import load_tags, y
+
+STARTED_AT = time.time()
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
     """HTTP-сервер: HTML-панель и JSON для автообновления."""
 
-    def _send(self, code, body, content_type):
+    def _send(self, code, body, content_type, extra_headers=None):
         payload = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 
     def _send_json(self, data, code=200):
         self._send(code, json.dumps(data, ensure_ascii=False), "application/json; charset=utf-8")
+
+    def _send_download(self, filename, content_type, body):
+        self._send(200, body, content_type, {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        })
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -33,6 +47,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             metrics = load_metrics()
             self._send_json({
                 "status": "ok",
+                "version": __version__,
+                "uptime_seconds": round(time.time() - STARTED_AT),
                 "health_score": health_score(metrics),
                 "models": len(metrics),
                 "timestamp": datetime.now().isoformat(),
@@ -40,7 +56,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/view":
-            self._send_json(build_view(load_metrics()))
+            self._send_json(build_view(
+                load_metrics(), load_catalog_owned(), load_tags(),
+            ))
+            return
+
+        if path.startswith("/api/model/"):
+            model_id = unquote(path[len("/api/model/"):])
+            metrics = load_metrics()
+            detail = build_model_detail(
+                metrics, model_id, load_history(model_id, limit=40),
+            )
+            if detail is None:
+                self._send_json({"error": "not found"}, code=404)
+            else:
+                self._send_json(detail)
             return
 
         if path == "/api/metrics":
@@ -53,8 +83,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(data)
             return
 
+        if path == "/export.csv":
+            self._send_download(
+                "rb-tui-metrics.csv", "text/csv; charset=utf-8", export_csv(),
+            )
+            return
+
+        if path == "/export.json":
+            self._send_download(
+                "rb-tui-metrics.json", "application/json; charset=utf-8", export_json(),
+            )
+            return
+
         if path in ("/", "/index.html"):
-            view = build_view(load_metrics())
+            view = build_view(load_metrics(), load_catalog_owned(), load_tags())
             self._send(200, render_html(view), "text/html; charset=utf-8")
             return
 
@@ -226,6 +268,15 @@ HTML = r"""<!DOCTYPE html>
     background:rgba(214,242,100,.08);
   }
   .chip .n{font-family:var(--mono);opacity:.7;margin-left:4px}
+  .selects{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .selects select{
+    font:inherit;font-size:.76rem;color:var(--text);background:var(--bg);
+    border:1px solid var(--line-strong);border-radius:9px;padding:7px 9px;
+    max-width:180px;
+  }
+  .selects label{font-size:.72rem;color:var(--muted)}
+  .export{display:flex;gap:8px;flex-wrap:wrap}
+  .btn--sm{padding:6px 10px;font-size:.74rem}
 
   .table-wrap{max-height:min(62vh,640px);overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:.83rem}
@@ -263,6 +314,18 @@ HTML = r"""<!DOCTYPE html>
     display:inline-block;max-width:360px;overflow:hidden;
     text-overflow:ellipsis;vertical-align:bottom;
   }
+  .model-link{
+    appearance:none;border:0;background:transparent;padding:0;margin:0;
+    font:inherit;color:inherit;cursor:pointer;text-align:left;
+    display:inline-flex;align-items:center;gap:6px;max-width:380px;
+  }
+  .model-link:hover{color:var(--accent)}
+  .model-link code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .flag{font-size:.72rem;line-height:1}
+  .flag.err{color:var(--bad)}
+  .flag.fp{color:var(--warn)}
+  .tag{font-family:var(--mono);font-size:.66rem;color:var(--muted);
+    border:1px solid var(--line);border-radius:999px;padding:1px 7px}
   .when{font-family:var(--mono);font-size:.74rem;color:var(--muted)}
   .muted{color:var(--muted)}
   .v-ok{color:var(--ok)}
@@ -289,6 +352,39 @@ HTML = r"""<!DOCTYPE html>
     margin-top:20px;font-size:.74rem;color:var(--muted);
   }
   footer .links{display:flex;gap:14px}
+
+  .backdrop{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;
+    opacity:0;transition:opacity .16s ease;
+  }
+  .backdrop[hidden]{display:none}
+  .backdrop.open{opacity:1}
+  .drawer{
+    position:fixed;top:0;right:0;bottom:0;width:min(560px,94vw);z-index:21;
+    background:var(--surface);border-left:1px solid var(--line-strong);
+    transform:translateX(102%);transition:transform .18s ease;
+    display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:none}
+  .drawer-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:18px 20px;border-bottom:1px solid var(--line);
+  }
+  .drawer-head h2{font-size:.95rem;margin:0;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis}
+  .drawer-body{padding:18px 20px 28px;overflow:auto}
+  .detail-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 18px}
+  .detail-kpis div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+  .detail-kpis dt{font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .detail-kpis dd{margin:4px 0 0;font-family:var(--mono);font-size:1rem}
+  .chart-row{display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:center;margin:0 0 12px}
+  .chart-row .label{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .chart-row svg{width:100%;height:44px;display:block}
+  .detail-table{width:100%;border-collapse:collapse;font-size:.74rem;margin-top:6px}
+  .detail-table th{position:static;padding:6px 8px;border-bottom:1px solid var(--line-strong);color:var(--muted);text-align:left;font-weight:500}
+  .detail-table td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .detail-table td.msg{max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--bad)}
+  .detail-empty{color:var(--muted);font-size:.8rem;padding:10px 0}
+  body.locked{overflow:hidden}
 
   @media (max-width:900px){
     .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -342,11 +438,21 @@ HTML = r"""<!DOCTYPE html>
           <label class="sr-only" for="q">Поиск по названию модели</label>
           <input id="q" type="search" placeholder="Поиск модели…" autocomplete="off" spellcheck="false">
         </div>
+        <div class="selects">
+          <label for="owner">Провайдер</label>
+          <select id="owner"><option value="">все</option></select>
+          <label for="tag">Тег</label>
+          <select id="tag"><option value="">все</option></select>
+        </div>
         <div class="chips" role="group" aria-label="Фильтр по статусу">
           <button class="chip" type="button" data-status="all" aria-pressed="true">Все <span class="n" id="n-all">0</span></button>
           <button class="chip" type="button" data-status="stable" aria-pressed="false">Stable <span class="n" id="n-stable">0</span></button>
           <button class="chip" type="button" data-status="unstable" aria-pressed="false">Unstable <span class="n" id="n-unstable">0</span></button>
           <button class="chip" type="button" data-status="dead" aria-pressed="false">Dead <span class="n" id="n-dead">0</span></button>
+        </div>
+        <div class="export">
+          <a class="btn btn--sm" href="/export.csv" download>CSV</a>
+          <a class="btn btn--sm" href="/export.json" download>JSON</a>
         </div>
       </div>
       <div class="table-wrap">
@@ -372,6 +478,15 @@ HTML = r"""<!DOCTYPE html>
     </section>
   </main>
 
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <h2 id="drawer-title">Модель</h2>
+      <button class="btn btn--sm" id="drawer-close" type="button">Закрыть</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
   <footer>
     <span>rb-tui · автообновление каждые 30 с</span>
     <span class="links">
@@ -391,6 +506,8 @@ HTML = r"""<!DOCTYPE html>
     view: INITIAL,
     query: "",
     status: "all",
+    owner: "",
+    tag: "",
     sort: {key: "status", dir: 1},
   };
 
@@ -400,6 +517,13 @@ HTML = r"""<!DOCTYPE html>
   const noteEl = $("note");
   const liveEl = $("live");
   const refreshEl = $("refresh");
+  const ownerEl = $("owner");
+  const tagEl = $("tag");
+  const drawerEl = $("drawer");
+  const drawerBody = $("drawer-body");
+  const drawerTitle = $("drawer-title");
+  const backdropEl = $("backdrop");
+  const closeEl = $("drawer-close");
 
   function esc(value) {
     return String(value).replace(/[&<>"']/g, (c) => (
@@ -435,6 +559,29 @@ HTML = r"""<!DOCTYPE html>
     return "v-bad";
   }
 
+  function fmt(value, digits, suffix) {
+    return value === null || value === undefined
+      ? "—"
+      : num(value, digits) + (suffix || "");
+  }
+
+  function fillSelect(el, values, current) {
+    const keep = values.includes(current) ? current : "";
+    el.innerHTML = '<option value="">все</option>' + values
+      .map((v) => `<option value="${esc(v)}">${esc(v)}</option>`)
+      .join("");
+    el.value = keep;
+    return keep;
+  }
+
+  function renderFilterOptions() {
+    const models = state.view.models || [];
+    const owners = [...new Set(models.map((m) => m.owner).filter(Boolean))].sort();
+    const tags = [...new Set(models.map((m) => m.tag).filter(Boolean))].sort();
+    state.owner = fillSelect(ownerEl, owners, state.owner);
+    state.tag = fillSelect(tagEl, tags, state.tag);
+  }
+
   function renderKpis(v) {
     const c = v.counts || {};
     const a = v.averages || {};
@@ -450,13 +597,17 @@ HTML = r"""<!DOCTYPE html>
     $("n-stable").textContent = c.stable || 0;
     $("n-unstable").textContent = c.unstable || 0;
     $("n-dead").textContent = c.dead || 0;
-    $("updated").textContent = "данные на " + v.generated_at;
+    const fp = v.fp_changed || 0;
+    $("updated").textContent = "данные на " + v.generated_at
+      + (fp ? ` · fingerprint ⚠ ${fp}` : "");
   }
 
   function visibleRows() {
     const q = state.query.trim().toLowerCase();
     const rows = state.view.models.filter((m) => {
       if (state.status !== "all" && m.status !== state.status) return false;
+      if (state.owner && m.owner !== state.owner) return false;
+      if (state.tag && m.tag !== state.tag) return false;
       return !q || m.id.toLowerCase().includes(q);
     });
 
@@ -482,8 +633,14 @@ HTML = r"""<!DOCTYPE html>
   }
 
   function rowHtml(m) {
+    const flags =
+      (m.last_error ? `<span class="flag err" title="Последняя ошибка: ${esc(m.last_error)}">⚠</span>` : "")
+      + (m.fp_changed ? '<span class="flag fp" title="fingerprint менялся: модель могли подменить">◆</span>' : "");
+    const tag = m.tag ? `<span class="tag">${esc(m.tag)}</span>` : "";
     return `<tr>
-      <td><code class="model" title="${esc(m.id)}">${esc(m.id)}</code></td>
+      <td><button class="model-link" type="button" data-model="${esc(m.id)}" title="Открыть карточку модели">
+        <code>${esc(m.id)}</code>${flags}${tag}
+      </button></td>
       <td><span class="badge ${esc(m.status)}">${esc(m.status)}</span></td>
       <td class="num ${level(m.success_rate, 80, 30)}">${m.success_rate}%</td>
       <td class="num ${delayLevel(m.avg_ttft)}">${num(m.avg_ttft, 3)}</td>
@@ -492,6 +649,95 @@ HTML = r"""<!DOCTYPE html>
       <td class="num">${m.total}<span class="muted"> · ${m.ok} ok</span></td>
       <td class="when">${esc(m.last_seen)}</td>
     </tr>`;
+  }
+
+  function sparkline(values, color) {
+    const points = [];
+    let lo = Infinity, hi = -Infinity;
+    values.forEach((v) => {
+      if (v === null || v === undefined) return;
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    });
+    if (!Number.isFinite(lo)) return '<div class="detail-empty">нет данных</div>';
+    const w = 260, h = 40, pad = 4, span = hi - lo || 1;
+    values.forEach((v, i) => {
+      if (v === null || v === undefined) return;
+      points.push([
+        pad + i * (w - pad * 2) / Math.max(1, values.length - 1),
+        h - pad - (v - lo) / span * (h - pad * 2),
+      ]);
+    });
+    if (points.length < 2) return '<div class="detail-empty">мало данных для графика</div>';
+    const d = points.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="график">
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+  }
+
+  function openDrawer() {
+    backdropEl.hidden = false;
+    requestAnimationFrame(() => {
+      backdropEl.classList.add("open");
+      drawerEl.classList.add("open");
+    });
+    drawerEl.setAttribute("aria-hidden", "false");
+    document.body.classList.add("locked");
+    closeEl.focus();
+  }
+
+  function closeDrawer() {
+    drawerEl.classList.remove("open");
+    backdropEl.classList.remove("open");
+    drawerEl.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("locked");
+    setTimeout(() => { backdropEl.hidden = true; }, 180);
+  }
+
+  function renderDetail(data) {
+    const s = data.stats || {};
+    const hist = data.history || [];
+    const fp = s.fp_changed;
+    const rows = hist.slice().reverse().slice(0, 12).map((e) => `<tr>
+      <td class="when">${esc(e.ts || "")}</td>
+      <td class="${e.status === "OK" ? "v-ok" : "v-bad"}">${esc(e.status || "")}</td>
+      <td class="num">${fmt(e.ttft, 3)}</td>
+      <td class="num">${fmt(e.tts, 3)}</td>
+      <td class="num">${fmt(e.tps, 1)}</td>
+      <td class="msg" title="${esc(e.msg || "")}">${esc(e.msg || "")}</td>
+    </tr>`).join("");
+
+    drawerBody.innerHTML = `
+      <dl class="detail-kpis">
+        <div><dt>Статус</dt><dd class="${s.status === "stable" ? "v-ok" : (s.status === "dead" ? "v-bad" : "v-warn")}">${esc(s.status || "—")}</dd></div>
+        <div><dt>Success</dt><dd>${s.success_rate != null ? s.success_rate + "%" : "—"}</dd></div>
+        <div><dt>Проверок</dt><dd>${s.total ?? "—"}</dd></div>
+        <div><dt>Ср. TTFT</dt><dd>${fmt(s.avg_ttft, 3, "s")}</dd></div>
+        <div><dt>Ср. TTS</dt><dd>${fmt(s.avg_tts, 3, "s")}</dd></div>
+        <div><dt>Ср. TPS</dt><dd>${fmt(s.avg_tps, 1)}</dd></div>
+      </dl>
+      <div class="chart-row"><span class="label">TTFT</span>${sparkline(hist.map((e) => e.ttft), "#e9ecef")}</div>
+      <div class="chart-row"><span class="label">TTS</span>${sparkline(hist.map((e) => e.tts), "#8f98a3")}</div>
+      <div class="chart-row"><span class="label">TPS</span>${sparkline(hist.map((e) => e.tps), "#d6f264")}</div>
+      ${fp ? `<p class="note err">fingerprint сменился: ${esc(fp.from || "")} → ${esc(fp.to || "")}</p>` : ""}
+      ${s.last_error ? `<p class="note err">последняя ошибка: ${esc(s.last_error)}</p>` : ""}
+      <table class="detail-table">
+        <thead><tr><th>Когда</th><th>Статус</th><th>TTFT</th><th>TTS</th><th>TPS</th><th>Ошибка</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="detail-empty">проб ещё нет</td></tr>'}</tbody>
+      </table>`;
+  }
+
+  async function openModel(modelId) {
+    drawerTitle.textContent = modelId;
+    drawerBody.innerHTML = '<div class="detail-empty">загружаю историю…</div>';
+    openDrawer();
+    try {
+      const res = await fetch("/api/model/" + encodeURIComponent(modelId), {cache: "no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      renderDetail(await res.json());
+    } catch (err) {
+      drawerBody.innerHTML = `<div class="detail-empty v-bad">не удалось загрузить модель: ${esc(err.message)}</div>`;
+    }
   }
 
   function render() {
@@ -509,7 +755,7 @@ HTML = r"""<!DOCTYPE html>
       if (v.models.length === 0) {
         emptyEl.innerHTML = "<strong>Пока нет данных</strong>Запусти <code>rb-tui --sync</code> или <code>rb-tui --test</code>, чтобы собрать первые метрики.";
       } else {
-        emptyEl.innerHTML = "<strong>Ничего не найдено</strong>Измени поиск или сбрось фильтр статуса.";
+        emptyEl.innerHTML = "<strong>Ничего не найдено</strong>Измени поиск или сбрось фильтры.";
       }
     } else {
       emptyEl.hidden = true;
@@ -532,6 +778,7 @@ HTML = r"""<!DOCTYPE html>
       const res = await fetch("/api/view", {cache: "no-store"});
       if (!res.ok) throw new Error("HTTP " + res.status);
       state.view = await res.json();
+      renderFilterOptions();
       render();
       liveEl.classList.remove("offline");
       noteEl.classList.remove("err");
@@ -548,6 +795,27 @@ HTML = r"""<!DOCTYPE html>
   $("q").addEventListener("input", (e) => {
     state.query = e.target.value;
     render();
+  });
+
+  ownerEl.addEventListener("change", (e) => {
+    state.owner = e.target.value;
+    render();
+  });
+
+  tagEl.addEventListener("change", (e) => {
+    state.tag = e.target.value;
+    render();
+  });
+
+  rowsEl.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-model]");
+    if (button) openModel(button.dataset.model);
+  });
+
+  closeEl.addEventListener("click", closeDrawer);
+  backdropEl.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && drawerEl.classList.contains("open")) closeDrawer();
   });
 
   document.querySelectorAll(".chip").forEach((chip) => {
@@ -578,6 +846,7 @@ HTML = r"""<!DOCTYPE html>
     if (!document.hidden) refresh();
   }, 30000);
 
+  renderFilterOptions();
   render();
   noteEl.textContent = "данные на " + state.view.generated_at;
 })();
@@ -589,6 +858,9 @@ HTML = r"""<!DOCTYPE html>
 
 def serve(host="127.0.0.1", port=9090):
     """Запустить HTTP-дашборд."""
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print(y(f"  ⚠ {host} — дашборд без авторизации будет доступен по сети"))
+        print(y("    для локальной работы оставь --serve-host 127.0.0.1"))
     try:
         server = HTTPServer((host, port), DashboardHandler)
     except OSError as e:

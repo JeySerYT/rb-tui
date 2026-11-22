@@ -2,13 +2,12 @@
 
 import json
 import os
-import shutil
 import sys
 from datetime import datetime
 
 from rb_tui.utils import (
     CACHE, STATE, MISSING, LOG, CONFIG,
-    backup_config, prune_backups, parse_ok,
+    backup_config, prune_backups, parse_ok, atomic_write, atomic_copy,
 )
 from rb_tui.config import apply_edits
 
@@ -23,10 +22,21 @@ def load_prev_catalog():
         return None, None
 
 
-def save_catalog(models):
+def save_catalog(models, owned=None):
     d = {"date": datetime.now().strftime("%d.%m.%Y %H:%M"), "models": models}
-    with open(STATE, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
+    if owned:
+        d["owned"] = owned
+    atomic_write(STATE, json.dumps(d, ensure_ascii=False, indent=2))
+
+
+def load_catalog_owned():
+    """Кэш owned_by из последней синхронизации (без сети)."""
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            owned = json.load(f).get("owned") or {}
+        return owned if isinstance(owned, dict) else {}
+    except Exception:
+        return {}
 
 
 def load_missing():
@@ -39,8 +49,7 @@ def load_missing():
 
 
 def save_missing(d):
-    with open(MISSING, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
+    atomic_write(MISSING, json.dumps(d, ensure_ascii=False, indent=2))
 
 
 def log_auto(msg):
@@ -112,9 +121,9 @@ def auto_rollback():
         with open(bak_path, encoding="utf-8") as f:
             raw = f.read()
         if parse_ok(raw):
-            # Делаем бэкап текущего (сломанного)
+            # Делаем бэкап текущего (сломанного) и атомарно возвращаем рабочий.
             backup_config()
-            shutil.copy2(bak_path, CONFIG)
+            atomic_copy(bak_path, CONFIG)
             log_auto(f"rollback: восстановлен {bak}")
             return True, bak
     return False, "нет валидных бэкапов"

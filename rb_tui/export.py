@@ -4,10 +4,13 @@ import json
 import os
 from datetime import datetime
 
+from rb_tui import __version__
 from rb_tui.metrics import (
     load_metrics, full_stats, model_status, avg_ttft, success_rate, health_score,
 )
 from rb_tui.utils import CACHE
+
+SCHEMA_VERSION = 1
 
 
 def export_json(path=None):
@@ -20,6 +23,8 @@ def export_json(path=None):
             stats[mid] = s
 
     payload = {
+        "schema_version": SCHEMA_VERSION,
+        "tool_version": __version__,
         "exported_at": datetime.now().isoformat(),
         "health_score": health_score(metrics),
         "total_models": len(metrics),

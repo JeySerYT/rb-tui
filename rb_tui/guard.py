@@ -156,8 +156,12 @@ def pick_targets(live, budget=None):
     return ordered[:budget]
 
 
-def mark_probed(models):
-    """Запомнить, когда модели проверяли в последний раз."""
+def mark_probed(models, count=None):
+    """Запомнить, когда модели проверяли в последний раз.
+
+    count — сколько реальных запросов ушло (bench/compare тратят несколько
+    запросов на одну модель). По умолчанию — по одному на модель.
+    """
     state = load_state()
     now = time.time()
     today = _today()
@@ -167,13 +171,32 @@ def mark_probed(models):
     for mid in models:
         state["last_probe"][mid] = now
     state["last_run"] = now
-    state["total_probes"] = int(state.get("total_probes", 0)) + len(models)
-    state["day_probes"] = int(state.get("day_probes", 0)) + len(models)
+    spent = len(models) if count is None else max(0, int(count))
+    state["total_probes"] = int(state.get("total_probes", 0)) + spent
+    state["day_probes"] = int(state.get("day_probes", 0)) + spent
     # подчистить записи о моделях, которых больше нет в каталоге
     cutoff = now - 90 * 86400
     state["last_probe"] = {k: v for k, v in state["last_probe"].items()
                            if isinstance(v, (int, float)) and v >= cutoff}
     save_state(state)
+
+
+def reserve(count, models=None):
+    """Проверить и списать бюджет перед серией запросов.
+
+    Возвращает (ok, message). Если ok=False, запросы делать нельзя:
+    count не списывается, state не меняется.
+    """
+    count = max(0, int(count))
+    line = cooldown_status_line()
+    if line:
+        return False, line
+    remaining = daily_remaining()
+    if remaining < count:
+        return False, (f"суточный лимит проб: осталось {remaining}, "
+                       f"нужно {count}. Продолжу завтра.")
+    mark_probed(models or [], count=count)
+    return True, ""
 
 
 def jitter(delay):

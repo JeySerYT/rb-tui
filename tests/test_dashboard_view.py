@@ -44,6 +44,27 @@ class BuildViewTest(unittest.TestCase):
         self.assertIsNone(view["averages"]["tts"])
         self.assertEqual(view["health"], 50)
 
+    def test_owner_tag_and_last_error(self):
+        data = sample_metrics()
+        view = build_view(
+            data,
+            owned={"alpha/model": "deepseek"},
+            tags={"beta/model": "coding"},
+        )
+        by_id = {m["id"]: m for m in view["models"]}
+        self.assertEqual(by_id["alpha/model"]["owner"], "deepseek")
+        self.assertEqual(by_id["beta/model"]["tag"], "coding")
+        self.assertEqual(by_id["beta/model"]["last_error"], "no_channel_for_model")
+
+    def test_model_detail_uses_history(self):
+        from rb_tui.dashboard_view import build_model_detail
+        data = sample_metrics()
+        detail = build_model_detail(data, "alpha/model")
+        self.assertEqual(detail["model"], "alpha/model")
+        self.assertEqual(len(detail["history"]), 3)
+        self.assertEqual(detail["stats"]["status"], "stable")
+        self.assertIsNone(build_model_detail(data, "missing"))
+
 
 class RenderHtmlTest(unittest.TestCase):
     def test_embeds_initial_data(self):
@@ -51,6 +72,8 @@ class RenderHtmlTest(unittest.TestCase):
         self.assertNotIn("__INITIAL__", html)
         self.assertIn("alpha/model", html)
         self.assertIn('id="kpi-tts"', html)
+        self.assertIn('id="drawer"', html)
+        self.assertIn('href="/export.csv"', html)
 
     def test_escapes_script_breakout(self):
         data = metrics.add_metric(

@@ -4,8 +4,10 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 
 HOME = os.path.expanduser("~")
@@ -15,8 +17,11 @@ STATE = os.path.join(CACHE, "catalog-state.json")
 MISSING = os.path.join(CACHE, "missing.json")
 LOG = os.path.join(CACHE, "auto-sync.log")
 METRICS_HISTORY = os.path.join(CACHE, "metrics-history.json")
+METRICS_LOG = os.path.join(CACHE, "metrics-history.jsonl")
 TAGS_FILE = os.path.join(CACHE, "tags.json")
-MAX_HISTORY = 30
+# В metrics.json держим только «горячий» хвост для быстрых запросов.
+# Полная история пишется в METRICS_LOG (JSONL) и живёт до --prune-metrics.
+MAX_HISTORY = 200
 
 os.makedirs(CACHE, exist_ok=True)
 
@@ -68,6 +73,13 @@ def strip_jsonc(text):
             j = text.find("*/", i + 2)
             i = n if j < 0 else j + 2
         else:
+            if ch in "}]":
+                # JSONC/JSON5 допускает висячую запятую перед закрывающей скобкой.
+                j = len(out) - 1
+                while j >= 0 and out[j].isspace():
+                    j -= 1
+                if j >= 0 and out[j] == ",":
+                    del out[j]
             out.append(ch)
             i += 1
     return "".join(out)
@@ -83,6 +95,64 @@ def parse_ok(raw):
 
 def pretty_name(mid):
     return mid.replace("-", " ").replace(".", " ").title()
+
+
+# ── Атомарная запись ──
+
+def atomic_write(path, text):
+    """Записать файл атомарно: tmp в том же каталоге + os.replace.
+
+    Прерывание процесса или нехватка места не оставят обрезанный JSON,
+    а читатель никогда не увидит файл в промежуточном состоянии.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=directory)
+    try:
+        if os.path.exists(path):
+            # Сохранить права исходного файла (mkstemp создаёт 0600).
+            try:
+                os.chmod(tmp, stat.S_IMODE(os.stat(path).st_mode))
+            except OSError:
+                pass
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def atomic_copy(src, dst):
+    """Атомарно скопировать файл (для rollback конфига)."""
+    directory = os.path.dirname(dst) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=directory)
+    os.close(fd)
+    try:
+        shutil.copy2(src, tmp)
+        os.replace(tmp, dst)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def append_jsonl(path, entry):
+    """Дописать одну строку в JSONL. Для одного писателя этого достаточно."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 # ── Бэкапы ──
@@ -149,8 +219,7 @@ def load_tags():
 
 
 def save_tags(tags):
-    with open(TAGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tags, f, ensure_ascii=False, indent=2)
+    atomic_write(TAGS_FILE, json.dumps(tags, ensure_ascii=False, indent=2))
 
 
 def set_tag(model_id, tag):
