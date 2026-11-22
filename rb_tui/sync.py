@@ -5,8 +5,9 @@ import os
 import sys
 from datetime import datetime
 
+from rb_tui import utils
 from rb_tui.utils import (
-    CACHE, STATE, MISSING, LOG, CONFIG,
+    STATE, MISSING, LOG,
     backup_config, prune_backups, parse_ok, atomic_write, atomic_copy,
     backup_prefix,
 )
@@ -114,7 +115,7 @@ def auto_sync(new, gone, live):
 
 def auto_rollback():
     """Откатиться к последнему валидному бэкапу, если конфиг сломан."""
-    bak_dir = os.path.dirname(CONFIG) or "."
+    bak_dir = os.path.dirname(utils.CONFIG) or "."
     prefix = backup_prefix()
     baks = sorted([f for f in os.listdir(bak_dir) if f.startswith(prefix)],
                   reverse=True)
@@ -125,7 +126,7 @@ def auto_rollback():
         if parse_ok(raw):
             # Делаем бэкап текущего (сломанного) и атомарно возвращаем рабочий.
             backup_config()
-            atomic_copy(bak_path, CONFIG)
+            atomic_copy(bak_path, utils.CONFIG)
             log_auto(f"rollback: восстановлен {bak}")
             return True, bak
     return False, "нет валидных бэкапов"

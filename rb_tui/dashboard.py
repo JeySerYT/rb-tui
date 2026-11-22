@@ -3,7 +3,7 @@
 import json
 import time
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, unquote
 
 from rb_tui import __version__
@@ -862,7 +862,7 @@ def serve(host="127.0.0.1", port=9090):
         print(y(f"  ⚠ {host} — дашборд без авторизации будет доступен по сети"))
         print(y("    для локальной работы оставь --serve-host 127.0.0.1"))
     try:
-        server = HTTPServer((host, port), DashboardHandler)
+        server = ThreadingHTTPServer((host, port), DashboardHandler)
     except OSError as e:
         print(f"  ❌ не смог занять {host}:{port} — {e}")
         print("  порт занят? укажи другой: rb-tui --serve --serve-port 9091")

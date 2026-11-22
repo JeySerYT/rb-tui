@@ -3,16 +3,16 @@
 import json
 import os
 import re
-from datetime import datetime
 
+from rb_tui import utils
 from rb_tui.utils import (
-    CONFIG, CACHE, STATE, strip_jsonc, parse_ok, pretty_name, backup_config,
+    STATE, strip_jsonc, parse_ok, pretty_name, backup_config,
     atomic_write, backup_prefix,
 )
 
 
 def read_raw():
-    with open(CONFIG, encoding="utf-8") as f:
+    with open(utils.CONFIG, encoding="utf-8") as f:
         return f.read().lstrip("\ufeff")
 
 
@@ -26,9 +26,25 @@ def load_config():
     return raw, settings, list(models.keys())
 
 
-def _scan_object_end(raw, open_idx):
-    """Индекс закрывающей скобки для объекта, начинающегося с open_idx."""
-    depth, i, n, ins = 0, open_idx, len(raw), False
+def _skip_noise(raw, i):
+    """Пропустить комментарий JSONC; вернуть новую позицию или None."""
+    n = len(raw)
+    if raw.startswith("//", i):
+        j = raw.find("\n", i)
+        return n if j < 0 else j
+    if raw.startswith("/*", i):
+        j = raw.find("*/", i + 2)
+        return n if j < 0 else j + 2
+    return None
+
+
+def _scan_balanced(raw, open_idx):
+    """Индекс закрывающей скобки для { или [ с учётом строк и комментариев."""
+    pairs = {"{": "}", "[": "]"}
+    if raw[open_idx] not in pairs:
+        return None
+    stack = []
+    i, n, ins = open_idx, len(raw), False
     while i < n:
         ch = raw[i]
         if ins:
@@ -43,22 +59,103 @@ def _scan_object_end(raw, open_idx):
             ins = True
             i += 1
             continue
-        if raw.startswith("//", i):
-            j = raw.find("\n", i)
-            i = n if j < 0 else j
+        skipped = _skip_noise(raw, i)
+        if skipped is not None:
+            i = skipped
             continue
-        if raw.startswith("/*", i):
-            j = raw.find("*/", i + 2)
-            i = n if j < 0 else j + 2
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
+        if ch in pairs:
+            stack.append(pairs[ch])
+        elif ch in "}]":
+            if not stack:
+                return None
+            stack.pop()
+            if not stack:
                 return i
         i += 1
     return None
+
+
+def _scan_object_end(raw, open_idx):
+    """Индекс закрывающей скобки для объекта, начинающегося с open_idx."""
+    return _scan_balanced(raw, open_idx)
+
+
+def _find_key_open(raw, key):
+    """Позиция '{' после ключа, игнорируя строки и комментарии."""
+    needle = '"' + key + '"'
+    i, n = 0, len(raw)
+    while i < n:
+        ch = raw[i]
+        skipped = _skip_noise(raw, i)
+        if skipped is not None:
+            i = skipped
+            continue
+        if ch != '"':
+            i += 1
+            continue
+        j = i + 1
+        while j < n:
+            if raw[j] == "\\":
+                j += 2
+                continue
+            if raw[j] == '"':
+                break
+            j += 1
+        if raw[i:j + 1] == needle:
+            k = j + 1
+            while k < n and raw[k] in " \t\r\n":
+                k += 1
+            if k < n and raw[k] == ":":
+                k += 1
+                while k < n and raw[k] in " \t\r\n":
+                    k += 1
+                if k < n and raw[k] == "{":
+                    return k
+        i = j + 1
+    return None
+
+
+def _entry_span(raw, mid):
+    """(начало, конец значения) записи '"mid": ...' в блоке models."""
+    pat = re.compile(rf'(?m)^(?P<ind>[ \t]*)"{re.escape(mid)}"[ \t]*:')
+    m = pat.search(raw)
+    if not m:
+        return None
+    start, i, n = m.start(), m.end(), len(raw)
+    while i < n and raw[i] in " \t":
+        i += 1
+    if i < n and raw[i] in "{[":
+        end = _scan_balanced(raw, i)
+        if end is None:
+            return None
+        return start, end + 1
+    ins = False
+    while i < n:
+        ch = raw[i]
+        if ch == "\\" and ins:
+            i += 2
+            continue
+        if ch == '"':
+            ins = not ins
+        if not ins and ch in ",\n":
+            break
+        i += 1
+    return start, i
+
+
+def _entry_tail(raw, end):
+    """(индекс запятой, индекс после перевода строки) после значения записи."""
+    i = end
+    while i < len(raw) and raw[i] in " \t":
+        i += 1
+    comma = i if i < len(raw) and raw[i] == "," else None
+    if comma is not None:
+        i += 1
+    while i < len(raw) and raw[i] in " \t\r":
+        i += 1
+    if i < len(raw) and raw[i] == "\n":
+        i += 1
+    return comma, i
 
 
 def find_models_span(raw):
@@ -68,30 +165,33 @@ def find_models_span(raw):
     провайдерах правки уйдут в чужой конфиг. Если структуру найти не удалось,
     откатываемся к старому поведению (первый блок models).
     """
-    top = re.search(r'"(?:providers|provider)"\s*:\s*\{', raw)
-    if top:
-        top_open = raw.index("{", top.start())
-        top_end = _scan_object_end(raw, top_open)
-        if top_end is not None:
-            section = raw[top_open:top_end]
-            rm = re.search(r'"reformboss"\s*:\s*\{', section)
-            if rm:
-                prov_open = raw.index("{", top_open + rm.start())
-                prov_end = _scan_object_end(raw, prov_open)
-                if prov_end is not None:
-                    prov = raw[prov_open:prov_end]
-                    mm = re.search(r'"models"\s*:\s*\{', prov)
-                    if mm:
-                        models_open = raw.index("{", prov_open + mm.start())
-                        models_end = _scan_object_end(raw, models_open)
-                        if models_end is not None:
-                            return models_open, models_end
+    for container in ("providers", "provider"):
+        top_open = _find_key_open(raw, container)
+        if top_open is None:
+            continue
+        top_end = _scan_balanced(raw, top_open)
+        if top_end is None:
+            continue
+        section = raw[top_open:top_end + 1]
+        prov_rel = _find_key_open(section, "reformboss")
+        if prov_rel is None:
+            continue
+        prov_open = top_open + prov_rel
+        prov_end = _scan_balanced(raw, prov_open)
+        if prov_end is None:
+            continue
+        models_rel = _find_key_open(raw[prov_open:prov_end + 1], "models")
+        if models_rel is None:
+            continue
+        models_open = prov_open + models_rel
+        models_end = _scan_balanced(raw, models_open)
+        if models_end is not None:
+            return models_open, models_end
 
-    m = re.search(r'"models"\s*:\s*\{', raw)
-    if not m:
+    open_idx = _find_key_open(raw, "models")
+    if open_idx is None:
         return None
-    open_idx = raw.index("{", m.start())
-    return open_idx, _scan_object_end(raw, open_idx)
+    return open_idx, _scan_balanced(raw, open_idx)
 
 
 def indent_of_entry(raw, open_idx):
@@ -122,20 +222,36 @@ def apply_edits(adds, comment_out, deletes, note_date):
         changed = True
 
     for mid in comment_out:
-        pat = re.compile(rf'^(?P<line>(?P<ind>\s*)"{re.escape(mid)}"\s*:.*?)$', re.M)
-        m = pat.search(block)
-        if m and not m.group("line").lstrip().startswith("//"):
-            line = m.group("line").rstrip()
-            if line.endswith(","):
-                line = line[:-1] + " "
-            repl = f'{m.group("ind")}// {line.strip()}  // нет в каталоге с {note_date}'
-            block = block[:m.start()] + repl + block[m.end():]
-            changed = True
+        span = _entry_span(block, mid)
+        if not span or block[span[0]:].lstrip().startswith("//"):
+            continue
+        start, end = span
+        comma, _after = _entry_tail(block, end)
+        text = block[start:comma] if comma is not None else block[start:end]
+        lines = text.rstrip().splitlines()
+        if not lines:
+            continue
+        ind = re.match(r"[ \t]*", lines[0]).group(0)
+        repl = "\n".join(
+            ind + "// " + line.strip()
+            + (f"  // нет в каталоге с {note_date}" if idx == 0 else "")
+            for idx, line in enumerate(lines)
+        )
+        block = block[:start] + repl + block[end:]
+        delta = len(repl) - (end - start)
+        if comma is not None:
+            c = comma + delta
+            block = block[:c] + block[c + 1:]
+        changed = True
 
     for mid in deletes:
-        pat = re.compile(rf'^\s*"{re.escape(mid)}"\s*:.*\n?', re.M)
-        block, n = pat.subn("", block)
-        changed = changed or n > 0
+        span = _entry_span(block, mid)
+        if not span:
+            continue
+        start, end = span
+        _comma, tail_end = _entry_tail(block, end)
+        block = block[:start] + block[tail_end:]
+        changed = True
 
     if changed and (comment_out or deletes):
         active = [m for m in re.finditer(r'^\s*"[^"]+"\s*:.*$', block, re.M)
@@ -153,7 +269,7 @@ def apply_edits(adds, comment_out, deletes, note_date):
         return False, "правка сломала JSON, откат (файл не тронут)"
 
     bak = backup_config()
-    atomic_write(CONFIG, new_raw)
+    atomic_write(utils.CONFIG, new_raw)
     return True, bak
 
 
@@ -170,7 +286,7 @@ def append_log(lines):
     if not parse_ok(new_raw):
         return False, "лог ломает JSON, откат"
     bak = backup_config()
-    atomic_write(CONFIG, new_raw)
+    atomic_write(utils.CONFIG, new_raw)
     return True, bak
 
 
@@ -178,7 +294,7 @@ def diff_with_last_backup():
     """Показать diff между последним бэкапом и текущим конфигом."""
     import difflib
 
-    bak_dir = os.path.dirname(CONFIG) or "."
+    bak_dir = os.path.dirname(utils.CONFIG) or "."
     prefix = backup_prefix()
     baks = sorted([f for f in os.listdir(bak_dir) if f.startswith(prefix)])
     if not baks:
@@ -194,7 +310,7 @@ def diff_with_last_backup():
     diff = difflib.unified_diff(
         old_lines, new_lines,
         fromfile=f"backup/{baks[-1]}",
-        tofile=f"current/{os.path.basename(CONFIG)}",
+        tofile=f"current/{os.path.basename(utils.CONFIG)}",
         lineterm=""
     )
     return "\n".join(diff)
@@ -264,11 +380,11 @@ def config_check():
                     pass
         elif check_modes:
             try:
-                mode = os.stat(CONFIG).st_mode
+                mode = os.stat(utils.CONFIG).st_mode
                 if mode & 0o004:
                     issues.append(
                         f"⚠ apiKey лежит прямо в конфиге, а файл читают все "
-                        f"({oct(mode & 0o777)}): chmod 600 {CONFIG}"
+                        f"({oct(mode & 0o777)}): chmod 600 {utils.CONFIG}"
                     )
             except OSError:
                 pass

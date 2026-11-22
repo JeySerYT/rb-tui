@@ -178,12 +178,8 @@ def mark_probed(models, count=None):
     save_state(state)
 
 
-def reserve(count, models=None):
-    """Проверить и списать бюджет перед серией запросов.
-
-    Возвращает (ok, message). Если ok=False, запросы делать нельзя:
-    count не списывается, state не меняется.
-    """
+def can_reserve(count):
+    """Проверить cooldown и бюджет, не списывая запросы."""
     count = max(0, int(count))
     line = cooldown_status_line()
     if line:
@@ -192,8 +188,20 @@ def reserve(count, models=None):
     if remaining < count:
         return False, (f"суточный лимит проб: осталось {remaining}, "
                        f"нужно {count}. Продолжу завтра.")
-    mark_probed(models or [], count=count)
     return True, ""
+
+
+def commit(count, models=None):
+    """Списать бюджет после реально выполненных запросов."""
+    mark_probed(models or [], count=count)
+
+
+def reserve(count, models=None):
+    """Проверить и списать бюджет заранее (для вызовов без учёта failures)."""
+    ok, msg = can_reserve(count)
+    if ok:
+        commit(count, models)
+    return ok, msg
 
 
 def jitter(delay):

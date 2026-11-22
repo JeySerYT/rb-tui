@@ -59,6 +59,14 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(guard.load_state()["total_probes"], 3)
         self.assertIn("a", guard.load_state()["last_probe"])
 
+    def test_can_reserve_does_not_spend_until_commit(self):
+        ok, msg = guard.can_reserve(3)
+        self.assertTrue(ok, msg)
+        self.assertEqual(guard.daily_used(), 0)
+        guard.commit(3, ["a"])
+        self.assertEqual(guard.daily_used(), 3)
+        self.assertIn("a", guard.load_state()["last_probe"])
+
     def test_reserve_refuses_over_daily_limit_without_spending(self):
         with mock.patch.object(guard, "DEFAULT_DAILY_BUDGET", 2):
             ok, msg = guard.reserve(3, ["a"])

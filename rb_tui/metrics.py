@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 from rb_tui.utils import (
-    METRICS_HISTORY, METRICS_LOG, MAX_HISTORY, CACHE,
+    METRICS_HISTORY, METRICS_LOG, MAX_HISTORY,
     atomic_write, append_jsonl,
 )
 
@@ -23,11 +23,22 @@ def _parse_ts(value):
     return parsed
 
 
+def _quarantine(path):
+    """Битый файл не теряем: откладываем под отдельным именем."""
+    try:
+        if os.path.exists(path):
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            os.replace(path, path + ".corrupt-" + stamp)
+    except OSError:
+        pass
+
+
 def load_metrics():
     try:
         with open(METRICS_HISTORY, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (OSError, ValueError):
+        _quarantine(METRICS_HISTORY)
         return {}
 
 

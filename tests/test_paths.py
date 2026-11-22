@@ -126,16 +126,15 @@ class CacheDirTest(unittest.TestCase):
 
 
 class SetConfigPathTest(unittest.TestCase):
-    def test_updates_loaded_modules(self):
-        from rb_tui import config, utils
+    def test_updates_single_source_of_truth(self):
+        from rb_tui import utils
 
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "custom.json")
-            with mock.patch.object(utils, "CONFIG", "old"), \
-                    mock.patch.object(config, "CONFIG", "old"):
+            with mock.patch.object(utils, "CONFIG", "old"):
                 paths.set_config_path(target)
                 self.assertEqual(utils.CONFIG, os.path.abspath(target))
-                self.assertEqual(config.CONFIG, os.path.abspath(target))
+                self.assertEqual(utils.get_config(), os.path.abspath(target))
 
 
 if __name__ == "__main__":

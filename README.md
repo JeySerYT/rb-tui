@@ -281,7 +281,9 @@ python3 -m unittest discover -s tests -v
 
 ```
 rb_tui/
-├── cli.py              # argparse и сценарии
+├── cli.py              # argparse и маршрутизация
+├── commands.py         # общие сценарии: пробы, bench, watch
+├── interactive.py      # меню при запуске без аргументов
 ├── paths.py            # конфиг и кеш по ОС
 ├── config.py           # чтение и правка JSONC
 ├── probe.py            # TTFT, TTS, TPS, bench, compare

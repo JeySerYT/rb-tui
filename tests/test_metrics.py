@@ -160,6 +160,15 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(len(metrics.load_history()), 1)
         self.assertEqual(len(metrics.load_metrics()["m"]), 1)
 
+    def test_corrupt_file_is_quarantined(self):
+        with open(self.hot, "w", encoding="utf-8") as f:
+            f.write("{broken")
+        self.assertEqual(metrics.load_metrics(), {})
+        self.assertFalse(os.path.exists(self.hot))
+        self.assertTrue(any(
+            ".corrupt-" in name for name in os.listdir(self.tmp.name)
+        ))
+
     def test_timestamp_has_offset(self):
         data = metrics.add_metric({}, "m", "OK", 1.0, 1.0, 1)
         self.assertIsNotNone(datetime.fromisoformat(data["m"][0]["ts"]).tzinfo)

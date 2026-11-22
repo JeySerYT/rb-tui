@@ -3,14 +3,12 @@
 from datetime import datetime
 
 from rb_tui.utils import (
-    g, r, y, bl, cy, dim, bold,
+    g, r, y, bl, dim, bold,
 )
 from rb_tui.metrics import (
     model_status, avg_ttft, avg_tts, avg_tps, success_rate, full_stats,
     health_score, find_anomalies, lifetime,
 )
-from rb_tui.api import fetch_catalog
-from rb_tui.probe import probe_with_metrics
 
 
 def render_report(cfg_models, live, new, gone, key_ok, base, prev_date, appeared, disappeared):

@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -26,11 +25,35 @@ TAGS_FILE = os.path.join(CACHE, "tags.json")
 # Полная история пишется в METRICS_LOG (JSONL) и живёт до --prune-metrics.
 MAX_HISTORY = 200
 
-os.makedirs(CACHE, exist_ok=True)
+# Инициализация консоли и каталога кеша отложена: один импорт не должен
+# переконфигурировать stdio и писать на диск.
+ANSI = False
+COLOR = False
+INTERACTIVE = False
+_SETUP_DONE = False
 
-ANSI = console.setup()
-COLOR = ANSI and console.can_color() and os.environ.get("NO_COLOR") is None
-INTERACTIVE = sys.stdin.isatty() and sys.stdout.isatty()
+
+def ensure_setup():
+    """Подготовить консоль и каталог кеша один раз при запуске приложения."""
+    global _SETUP_DONE, ANSI, COLOR, INTERACTIVE
+    if _SETUP_DONE:
+        return
+    _SETUP_DONE = True
+    os.makedirs(CACHE, exist_ok=True)
+    ANSI = console.setup()
+    COLOR = ANSI and console.can_color() and os.environ.get("NO_COLOR") is None
+    INTERACTIVE = sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def get_config():
+    """Единственный источник пути к конфигу (--config меняет его)."""
+    return CONFIG
+
+
+def set_config(path):
+    """Задать путь к конфигу для всего процесса."""
+    global CONFIG
+    CONFIG = path
 
 
 # ── ANSI colors ──

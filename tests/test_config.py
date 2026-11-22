@@ -45,7 +45,6 @@ class ConfigTest(unittest.TestCase):
         with open(self.path, "w", encoding="utf-8") as f:
             f.write(BASE % self.key.replace("\\", "\\\\"))
         for patcher in (
-            mock.patch.object(config, "CONFIG", self.path),
             mock.patch.object(utils, "CONFIG", self.path),
             mock.patch.object(config, "STATE", os.path.join(self.tmp.name, "state.json")),
         ):
@@ -75,6 +74,31 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(
             list(data["providers"]["other"]["models"]), ["wrong-model"],
         )
+
+    def test_apply_edits_with_multiline_entry(self):
+        raw = (BASE % self.key.replace("\\", "\\\\")).replace(
+            '"beta": { "name": "Beta" },',
+            '"beta": {\n          "name": "Beta"\n        },',
+        )
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(raw)
+        ok, msg = config.apply_edits([], ["beta"], [], "22.11.2026")
+        self.assertTrue(ok, msg)
+        self.assertTrue(utils.parse_ok(self.read()))
+        _, _, models = config.load_config()
+        self.assertNotIn("beta", models)
+
+    def test_span_ignores_key_inside_comment(self):
+        raw = (BASE % self.key.replace("\\", "\\\\")).replace(
+            '  "providers": {',
+            '  // пример: "models": { тут не надо править\n  "providers": {',
+        )
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(raw)
+        start, end = config.find_models_span(self.read())
+        block = self.read()[start:end]
+        self.assertIn('"alpha"', block)
+        self.assertNotIn("тут не надо править", block)
 
     def test_apply_edits_comments_out_and_keeps_json_valid(self):
         ok, msg = config.apply_edits([], ["beta"], [], "22.11.2026")

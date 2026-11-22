@@ -396,25 +396,25 @@ class CheckCachedTest(unittest.TestCase):
 
 class NotifyTest(unittest.TestCase):
     def test_frozen_binary_prints_notice(self):
-        from rb_tui import cli
+        from rb_tui import commands
 
         buf = io.StringIO()
-        with mock.patch.object(cli.sys, "frozen", True, create=True), \
+        with mock.patch.object(commands.sys, "frozen", True, create=True), \
                 mock.patch("rb_tui.update.check_cached", return_value="9.9.9"), \
                 mock.patch("sys.stdout", buf):
-            cli.notify_update_available()
+            commands.notify_update_available()
         out = buf.getvalue()
         self.assertIn("9.9.9", out)
         self.assertIn("--update", out)
 
     def test_source_run_is_silent(self):
-        from rb_tui import cli
+        from rb_tui import commands
 
         buf = io.StringIO()
-        with mock.patch.object(cli.sys, "frozen", False, create=True), \
+        with mock.patch.object(commands.sys, "frozen", False, create=True), \
                 mock.patch("rb_tui.update.check_cached") as check, \
                 mock.patch("sys.stdout", buf):
-            cli.notify_update_available()
+            commands.notify_update_available()
         check.assert_not_called()
         self.assertEqual(buf.getvalue(), "")
 

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from rb_tui import sync
+from rb_tui import sync, utils
 
 
 class SyncTest(unittest.TestCase):
@@ -57,7 +57,7 @@ class SyncTest(unittest.TestCase):
             f.write('{"providers": {"reformboss": {}}}')
         with open(config_path, "w", encoding="utf-8") as f:
             f.write("{broken")
-        with mock.patch.object(sync, "CONFIG", config_path), \
+        with mock.patch.object(utils, "CONFIG", config_path), \
                 mock.patch.object(sync, "backup_config", return_value="bak"):
             ok, name = sync.auto_rollback()
         self.assertTrue(ok)
@@ -66,7 +66,7 @@ class SyncTest(unittest.TestCase):
             self.assertIn("reformboss", f.read())
 
     def test_rollback_without_backups(self):
-        with mock.patch.object(sync, "CONFIG", os.path.join(self.tmp.name, "none.json")):
+        with mock.patch.object(utils, "CONFIG", os.path.join(self.tmp.name, "none.json")):
             ok, msg = sync.auto_rollback()
         self.assertFalse(ok)
         self.assertIn("нет", msg)

@@ -3,15 +3,13 @@
 import csv
 import io
 import json
-import os
 from datetime import datetime
 from html import escape
 
 from rb_tui import __version__
 from rb_tui.metrics import (
-    load_metrics, full_stats, model_status, avg_ttft, success_rate, health_score,
+    load_metrics, full_stats, model_status, health_score,
 )
-from rb_tui.utils import CACHE
 
 SCHEMA_VERSION = 1
 

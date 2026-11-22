@@ -8,6 +8,17 @@ from unittest import mock
 from rb_tui import utils
 
 
+class SetupTest(unittest.TestCase):
+    def test_setup_runs_once(self):
+        with mock.patch.object(utils, "_SETUP_DONE", False), \
+                mock.patch.object(utils.console, "setup", return_value=True) as setup, \
+                mock.patch.object(utils.os, "makedirs") as makedirs:
+            utils.ensure_setup()
+            utils.ensure_setup()
+        setup.assert_called_once()
+        makedirs.assert_called_once()
+
+
 class UrlCheckTest(unittest.TestCase):
     def test_allows_http_and_https(self):
         self.assertEqual(utils.check_url("https://example.com/v1"),

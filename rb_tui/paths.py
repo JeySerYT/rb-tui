@@ -161,17 +161,9 @@ def cache_dir(system=None, env=None, home=None):
 
 
 def set_config_path(path):
-    """Переопределить конфиг на время запуска (--config / RB_TUI_CONFIG).
-
-    CONFIG импортируется по значению в несколько модулей, поэтому обновляем
-    его везде, где он уже загружен.
-    """
+    """Переопределить конфиг на время запуска (--config / RB_TUI_CONFIG)."""
     resolved = os.path.abspath(_expand(path, _home()))
     from rb_tui import utils
 
-    utils.CONFIG = resolved
-    for name in ("rb_tui.config", "rb_tui.sync", "rb_tui.cli"):
-        module = sys.modules.get(name)
-        if module is not None:
-            module.CONFIG = resolved
+    utils.set_config(resolved)
     return resolved

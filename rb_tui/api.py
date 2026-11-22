@@ -36,10 +36,12 @@ def fetch_catalog(base, key):
     """Получить список моделей из каталога API."""
     try:
         data = http_json(base.rstrip("/") + "/models", key, timeout=20)
-        models = sorted(m["id"] for m in data.get("data", []))
-        owned = {}
-        for m in data.get("data", []):
-            owned[m["id"]] = m.get("owned_by", "unknown")
+        items = [
+            m for m in (data.get("data") or [])
+            if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]
+        ]
+        models = sorted(m["id"] for m in items)
+        owned = {m["id"]: m.get("owned_by", "unknown") for m in items}
         return models, owned, None
     except urllib.error.HTTPError as e:
         return None, None, f"HTTP {e.code}"

@@ -1,47 +1,34 @@
-"""CLI-диспетчер: главная точка входа для rb-tui."""
+"""CLI-диспетчер: разбор аргументов и маршрутизация команд."""
 
+import argparse
 import os
 import sys
-import time
-from datetime import datetime
 
 from rb_tui import __version__
-from rb_tui import console, crash, paths
-from rb_tui.utils import (
-    CONFIG, INTERACTIVE, g, r, y, bl, cy, dim, bold,
-    fzf_multi, prune_backups, backup_config, load_tags, set_tag,
-)
-from rb_tui.config import (
-    load_config, read_raw, apply_edits, append_log, diff_with_last_backup, config_check,
+from rb_tui import console, crash, guard, interactive, paths, utils
+from rb_tui import commands
+from rb_tui.alerts import (
+    build_webhook_payload, notify_anomalies, notify_hint, notify_new_models,
+    notify_stable_to_dead, send_webhook, test_notify, webhook_format,
 )
 from rb_tui.api import api_key, fetch_catalog
-from rb_tui import guard
-from rb_tui.probe import (
-    probe_with_metrics, probe_all, speed_test, compare_models, bench_model,
-    ProbeThrottled,
-)
+from rb_tui.config import config_check, diff_with_last_backup, load_config
+from rb_tui.dashboard import serve
+from rb_tui.export import export_csv, export_html, export_json
 from rb_tui.metrics import (
-    load_metrics, save_metrics, record_metric,
-    prune_history, model_status, avg_ttft, success_rate, full_stats, lifetime,
-    health_score,
+    load_metrics, prune_history, record_metric, save_metrics,
 )
+from rb_tui.probe import ProbeThrottled, probe_with_metrics
 from rb_tui.render import (
-    render_report, render_home, render_menu,
-    print_test_table, print_top, print_stats, print_info,
-    print_history_ascii, print_trend, print_lifetime, print_anomalies,
-    print_grouped_by_owner, print_filtered, print_bench_results,
-    print_compare_results, print_speed_result,
+    print_anomalies, print_filtered, print_grouped_by_owner,
+    print_history_ascii, print_info, print_lifetime, print_stats, print_test_table,
+    print_top, print_trend, render_report,
 )
 from rb_tui.sync import (
-    auto_sync, save_catalog, load_prev_catalog, load_catalog_owned,
-    auto_cleanup, auto_rollback, log_auto,
+    auto_cleanup, auto_rollback, auto_sync, load_catalog_owned,
+    load_prev_catalog, log_auto, save_catalog,
 )
-from rb_tui.alerts import (
-    desktop_notify, notify_new_models, notify_stable_to_dead, notify_anomalies,
-    send_webhook, build_webhook_payload, test_notify, webhook_format, notify_hint,
-)
-from rb_tui.export import export_json, export_csv, export_html
-from rb_tui.dashboard import serve
+from rb_tui.utils import dim, g, prune_backups, r, set_tag, y
 
 
 def fail(message, code=1):
@@ -51,105 +38,7 @@ def fail(message, code=1):
     sys.exit(code)
 
 
-def _ask(prompt):
-    """Опрос в интерактивном меню; None при EOF/Ctrl+C."""
-    try:
-        return input(prompt)
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-
-
-def reserve_probes(count, models=None):
-    """Проверить cooldown и суточный бюджет, затем списать запросы."""
-    ok, msg = guard.reserve(count, models)
-    if not ok:
-        prefix = "  ⏸ " if "на паузе" in msg else "  "
-        print(y(prefix + msg))
-        return False
-    return True
-
-
-def run_probe_cycle(base, key, live, budget=None, progress=False, verbose=True):
-    """Безопасный цикл проб: cooldown → ротация → порция → стоп на детекте.
-
-    Возвращает (results, throttled). results is None, если пробы на паузе.
-    Метрики пишутся только для реально проверенных моделей: срабатывание
-    защиты API никогда не превращается в статус dead.
-    """
-    line = guard.cooldown_status_line()
-    if line:
-        if verbose:
-            print(y("  ⏸ " + line))
-        return None, False
-
-    budget = guard.DEFAULT_BUDGET if budget is None else budget
-    if guard.daily_remaining() <= 0:
-        if verbose:
-            print(y(f"  суточный лимит проб исчерпан ({guard.DEFAULT_DAILY_BUDGET}), "
-                    f"продолжу завтра"))
-        return [], False
-    budget = guard.clamp_budget(budget)
-    targets = guard.pick_targets(live, budget=budget)
-    if not targets:
-        if verbose:
-            print(dim("  в каталоге нет моделей для проверки"))
-        return [], False
-
-    if verbose:
-        print(dim(f"  проверяю {len(targets)} из {len(live)} моделей каталога "
-                  f"(пауза {guard.DEFAULT_DELAY:g}с, ротация)"))
-
-    throttled = False
-    try:
-        results = probe_all(base, key, targets, progress=progress)
-    except ProbeThrottled as e:
-        results = e.results
-        throttled = True
-        left = guard.set_cooldown(reason=str(e.msg)[:80])
-        print(r(f"  ⛔ API включил защиту: {e.msg}"))
-        print(y(f"  прогон остановлен, пробы на паузе {guard.human_left(left)}."))
-        print(dim(f"  проверено до срабатывания: {len(results)} — пишу только их."))
-
-    if results:
-        metrics = load_metrics()
-        for mid, status, ttft, tts, total, tokens, fp, msg in results:
-            metrics = record_metric(
-                metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts,
-            )
-        save_metrics(metrics)
-        guard.mark_probed([r[0] for r in results])
-
-    return results, throttled
-
-
-def handle_throttle(e):
-    """Остановиться, уйти в cooldown и объяснить это пользователю."""
-    left = guard.set_cooldown(reason=str(e.msg)[:80])
-    print(r(f"  ⛔ API включил защиту: {e.msg}"))
-    print(y(f"  пробы на паузе {guard.human_left(left)}."))
-
-
-def notify_update_available():
-    """Показать доступное обновление при запуске standalone-бинарника."""
-    if not getattr(sys, "frozen", False):
-        return
-    try:
-        from rb_tui import update as updater
-
-        latest = updater.check_cached()
-    except Exception:
-        return
-    if latest:
-        print(y(f"  ↑ доступна новая версия v{latest} (у тебя v{__version__})"))
-        print(dim("    обновить: rb-tui --update"))
-
-
-def main():
-    # CONFIG переопределяется флагом --config; остальное — аргументы.
-    global CONFIG
-    # ── парсинг аргументов ──
-    import argparse
+def _build_parser():
     parser = argparse.ArgumentParser(
         prog="rb-tui",
         description="ReformBoss model catalog manager — sync, test, benchmark, dashboard",
@@ -232,14 +121,30 @@ def main():
     parser.add_argument("--report-bug", nargs="?", const="", type=str, default=None,
                         metavar="FILE",
                         help="Открыть Issue с сохранённым отчётом о падении")
+    return parser
 
-    args = parser.parse_args()
+
+def _run_probe_command(count, models, handler, *handler_args):
+    """Забронировать бюджет, выполнить сценарий и списать только успех."""
+    if not commands.reserve_probes(count, models):
+        return
+    try:
+        handler(*handler_args)
+    except ProbeThrottled as e:
+        commands.handle_throttle(e)
+    else:
+        guard.commit(count, models)
+
+
+def main():
+    utils.ensure_setup()
+    args = _build_parser().parse_args()
 
     # Перехват падений ставим до любой реальной работы.
     crash.install()
 
     if args.config:
-        CONFIG = paths.set_config_path(args.config)
+        paths.set_config_path(args.config)
 
     if args.version:
         print(f"rb-tui v{__version__}")
@@ -277,7 +182,7 @@ def main():
             fail(f"  {e}")
         return
 
-    notify_update_available()
+    commands.notify_update_available()
 
     # ── быстрые команды без конфига ──
     if args.probe_reset:
@@ -302,8 +207,9 @@ def main():
               else r(f"  не удалось: {notify_hint()}"))
         return
 
-    if not os.path.isfile(CONFIG):
-        print(r(f"конфиг не найден: {CONFIG}"))
+    config_path = utils.get_config()
+    if not os.path.isfile(config_path):
+        print(r(f"конфиг не найден: {config_path}"))
         print(dim("  проверены пути:"))
         for path in paths.searched_paths():
             print(dim(f"    {path}"))
@@ -341,13 +247,11 @@ def main():
         return
 
     if args.info:
-        metrics = load_metrics()
-        print_info(args.info, metrics)
+        print_info(args.info, load_metrics())
         return
 
     if args.history:
-        metrics = load_metrics()
-        print_history_ascii(args.history, metrics)
+        print_history_ascii(args.history, load_metrics())
         return
 
     if args.trend:
@@ -355,52 +259,38 @@ def main():
         return
 
     if args.lifetime:
-        metrics = load_metrics()
-        print_lifetime(metrics)
+        print_lifetime(load_metrics())
         return
 
     if args.anomalies:
-        metrics = load_metrics()
-        print_anomalies(metrics)
+        print_anomalies(load_metrics())
         return
 
     if args.stats:
-        metrics = load_metrics()
-        print_stats(metrics)
+        print_stats(load_metrics())
         return
 
     if args.top is not None:
-        metrics = load_metrics()
-        print_top(metrics, n=args.top, sort_by=args.sort)
+        print_top(load_metrics(), n=args.top, sort_by=args.sort)
         return
 
     if args.json is not None:
         out = export_json(args.json or None)
-        if args.json:
-            print(f"  экспорт: {out}")
-        else:
-            print(out)
+        print(f"  экспорт: {out}" if args.json else out)
         return
 
     if args.export_html is not None:
         out = export_html(args.export_html or None)
-        if args.export_html:
-            print(f"  экспорт: {out}")
-        else:
-            print(out)
+        print(f"  экспорт: {out}" if args.export_html else out)
         return
 
     if args.export_csv is not None:
         out = export_csv(args.export_csv or None)
-        if args.export_csv:
-            print(f"  экспорт: {out}")
-        else:
-            print(out)
+        print(f"  экспорт: {out}" if args.export_csv else out)
         return
 
     if args.group_by_owner:
-        metrics = load_metrics()
-        print_grouped_by_owner(metrics, owned=load_catalog_owned())
+        print_grouped_by_owner(load_metrics(), owned=load_catalog_owned())
         return
 
     if args.tag:
@@ -413,12 +303,11 @@ def main():
         return
 
     if args.fuzzy:
-        _cmd_fuzzy(args.fuzzy, metrics=load_metrics())
+        commands.cmd_fuzzy(args.fuzzy, metrics=load_metrics())
         return
 
     if args.filter:
         metrics = load_metrics()
-        # filtering requires live models, get them
         live, _, err = fetch_catalog(base, key)
         if live is None:
             print(r(f"каталог недоступен: {err}"))
@@ -427,48 +316,33 @@ def main():
         return
 
     if args.bench:
-        if not reserve_probes(3, [args.bench]):
-            return
-        try:
-            _cmd_bench(base, key, args.bench)
-        except ProbeThrottled as e:
-            handle_throttle(e)
+        _run_probe_command(3, [args.bench], commands.cmd_bench, base, key, args.bench)
         return
 
     if args.compare:
-        if not reserve_probes(6, args.compare):
-            return
-        try:
-            _cmd_compare(base, key, args.compare[0], args.compare[1])
-        except ProbeThrottled as e:
-            handle_throttle(e)
+        _run_probe_command(6, args.compare, commands.cmd_compare,
+                           base, key, args.compare[0], args.compare[1])
         return
 
     if args.speed:
-        if not reserve_probes(1, [args.speed]):
-            return
-        try:
-            _cmd_speed(base, key, args.speed)
-        except ProbeThrottled as e:
-            handle_throttle(e)
+        _run_probe_command(1, [args.speed], commands.cmd_speed, base, key, args.speed)
         return
 
     if args.webhook:
         metrics = load_metrics()
-        fmt = webhook_format(args.webhook)
-        payload = build_webhook_payload(metrics, fmt=fmt)
+        payload = build_webhook_payload(metrics, fmt=webhook_format(args.webhook))
         ok = send_webhook(args.webhook, payload)
         print(g("вебхук отправлен") if ok else r("ошибка вебхука"))
         return
 
     if args.watch:
-        _cmd_watch(
+        commands.cmd_watch(
             base, key, interval=args.watch_interval,
             runs=args.watch_runs, budget=args.probe_budget,
         )
         return
 
-    # ── fetch catalog ──
+    # ── каталог ──
     live, owned, err = fetch_catalog(base, key)
     if live is None:
         fail(f"каталог недоступен: {err}")
@@ -504,12 +378,11 @@ def main():
             print(r(f"  ⛔ API включил защиту: {msg}"))
             print(y(f"  пробы на паузе {guard.human_left(left)}, метрика не записана"))
             return
-        metrics = load_metrics()
         metrics = record_metric(
-            metrics, mid, status, ttft, total, tokens, fp, msg, tts=tts,
+            load_metrics(), mid, status, ttft, total, tokens, fp, msg, tts=tts,
         )
         save_metrics(metrics)
-        guard.mark_probed([mid])
+        guard.commit(1, [mid])
         tts_s = f"  tts={tts}" if tts is not None else ""
         print(f"  {mid}: {status}  ttft={ttft}{tts_s}  total={total}  tokens={tokens}")
         return
@@ -517,41 +390,31 @@ def main():
     # ── --sync ──
     if args.sync:
         auto_sync(new, gone, live)
-        # безопасный тест: только живые модели, порция с ротацией
-        results, _throttled = run_probe_cycle(
+        results, _throttled = commands.run_probe_cycle(
             base, key, live, budget=args.probe_budget, progress=True)
         if results is None:
             return
 
         metrics = load_metrics()
-        ok_count = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
+        ok_count = sum(1 for item in results if item[1] == "OK")
         if results:
             print(f"  {g(f'✅ {ok_count}/{len(results)} доступны')}, метрики сохранены")
         else:
             print(y("  метрики не обновлялись"))
 
-        # Уведомления
-        target_live = [m for m in live if m not in new]
         notify_new_models(new)
         notify_stable_to_dead(metrics)
         notify_anomalies(metrics)
-
-        # Автоочистка
         auto_cleanup(days=30)
-
-        # Сводка в лог
         log_auto(f"sync: тест {ok_count}/{len(results)} живых")
         return
 
-    # ── --report / --test ──
-    def show():
-        render_report(cfg_models, live, new, gone, key_ok=True, base=base,
-                      prev_date=prev_date, appeared=appeared, disappeared=disappeared)
-
-    if args.report or args.test or not INTERACTIVE:
-        show()
+    # ── --report / --test / неинтерактивный запуск ──
+    if args.report or args.test or not utils.INTERACTIVE:
+        render_report(cfg_models, live, new, gone, True, base,
+                      prev_date, appeared, disappeared)
         if args.test:
-            results, _throttled = run_probe_cycle(
+            results, _throttled = commands.run_probe_cycle(
                 base, key, live, budget=args.probe_budget)
             if results:
                 print_test_table(results, load_metrics())
@@ -559,278 +422,11 @@ def main():
                 print(y("  нет результатов для таблицы"))
         return
 
-    # ── интерактивный режим ──
-    last_results = None
-
-    def redraw():
-        render_home(cfg_models, live, new, gone, load_metrics(), prev_date,
-                    appeared, disappeared, base, __version__)
-
-    redraw()
-    while True:
-        items = []
-        if new:
-            items.append(("Каталог", "1", f"добавить новые в конфиг ({len(new)})"))
-        if gone:
-            items.append(("Каталог", "2", f"убрать пропавшие ({len(gone)})"))
-        items += [
-            ("Каталог", "3", "тест доступности (бюджет + ротация)"),
-            ("Каталог", "4", "записать сводку в лог конфига"),
-            ("Метрики", "5", "сводка и топ моделей"),
-            ("Метрики", "6", "аномалии"),
-            ("Метрики", "7", "тренд и карточка модели"),
-            ("Инструменты", "c", "проверка конфига"),
-            ("Инструменты", "d", "diff с последним бэкапом"),
-            ("Инструменты", "t", "установить тег модели"),
-            ("Инструменты", "f", "модели по тегу"),
-            ("Инструменты", "u", "проверить обновление"),
-            ("Инструменты", "n", "тест уведомлений"),
-            ("Выход", "q", "выйти"),
-        ]
-        render_menu(items)
-        answer = _ask(cy("  выбор: "))
-        if answer is None:
-            break
-        choice = answer.strip().lower()
-
-        if choice == "q":
-            break
-
-        elif choice == "1" and new:
-            picked = fzf_multi(new, "Tab - выбрать, Enter - подтвердить, Esc - отмена",
-                               "добавить> ")
-            if picked:
-                ok, msg = apply_edits(adds=picked, comment_out=[], deletes=[],
-                                      note_date=datetime.now().strftime("%d.%m.%Y"))
-                if ok:
-                    print(g(f"добавлено {len(picked)}, бэкап: {msg}"))
-                    _, _, cfg_models = load_config()
-                    new = [m for m in live if m not in cfg_models]
-                    gone = [m for m in cfg_models if m not in live]
-                else:
-                    print(r(msg))
-
-        elif choice == "2" and gone:
-            picked = fzf_multi(gone, "Tab - выбрать, Enter - подтвердить, Esc - отмена",
-                               "убрать> ")
-            if picked:
-                print(f"  действие: {c('c', '1')} закомментировать · "
-                      f"{c('d', '1')} удалить · Enter отмена")
-                answer = _ask(cy("  выбор: "))
-                if answer is None:
-                    break
-                act = answer.strip().lower()
-                if act in ("c", "d"):
-                    ok, msg = apply_edits(
-                        adds=[], comment_out=picked if act == "c" else [],
-                        deletes=picked if act == "d" else [],
-                        note_date=datetime.now().strftime("%d.%m.%Y"))
-                    if ok:
-                        verb = "закомментировано" if act == "c" else "удалено"
-                        print(g(f"{verb} {len(picked)}, бэкап: {msg}"))
-                        _, _, cfg_models = load_config()
-                        new = [m for m in live if m not in cfg_models]
-                        gone = [m for m in cfg_models if m not in live]
-                    else:
-                        print(r(msg))
-
-        elif choice == "3":
-            results, _throttled = run_probe_cycle(
-                base, key, live, budget=args.probe_budget)
-            if results:
-                print_test_table(results, load_metrics())
-                last_results = results
-            elif results is not None:
-                print(y("  нет результатов для таблицы"))
-
-        elif choice == "4" and (last_results or new or gone):
-            ts = datetime.now().strftime("%d.%m.%Y %H:%M")
-            lines = [f"── Проверка {ts} ──"]
-            if last_results:
-                oks = [m for m, s, _, _, _, _, _, _ in last_results if s == "OK"]
-                errs = [m for m, s, _, _, _, _, _, _ in last_results if s == "ERR"]
-                nos = [m for m, s, _, _, _, _, _, _ in last_results if s == "NO"]
-                if oks:
-                    lines.append(f"OK ({len(oks)}): {', '.join(oks)}")
-                if errs:
-                    lines.append(f"ERR ({len(errs)}): {', '.join(errs)}")
-                if nos:
-                    lines.append(f"без ответа ({len(nos)}): {', '.join(nos)}")
-            if new:
-                lines.append(f"появились в каталоге: {', '.join(new)}")
-            if gone:
-                lines.append(f"пропали из каталога: {', '.join(gone)}")
-            ok, msg = append_log(lines)
-            print(g(f"сводка записана в конфиг, бэкап: {msg}") if ok else r(msg))
-
-        elif choice == "5":
-            metrics = load_metrics()
-            print_stats(metrics)
-            print_top(metrics, n=10)
-
-        elif choice == "6":
-            print_anomalies(load_metrics())
-
-        elif choice == "7":
-            mid = _ask(cy("  модель: "))
-            if mid is not None and mid.strip():
-                mid = mid.strip()
-                metrics = load_metrics()
-                if mid in metrics:
-                    print_trend(mid)
-                    print_info(mid, metrics)
-                else:
-                    print(y(f"  нет данных по модели {mid}"))
-
-        elif choice == "c":
-            for issue in config_check():
-                print(f"  {issue}")
-
-        elif choice == "d":
-            print(diff_with_last_backup())
-
-        elif choice == "t":
-            mid = _ask(cy("  модель: "))
-            if mid is None:
-                break
-            tag = _ask(cy("  тег (пусто — снять): "))
-            if tag is not None:
-                set_tag(mid.strip(), tag.strip())
-                print(g(f"  тег '{tag.strip()}' установлен для {mid.strip()}"))
-
-        elif choice == "f":
-            tag = _ask(cy("  тег: "))
-            if tag is not None:
-                print_filtered(live, tag=tag.strip() or None,
-                               metrics=load_metrics())
-
-        elif choice == "u":
-            try:
-                from rb_tui import update as updater
-                latest = updater.check_cached()
-                print(y(f"  доступна v{latest} (у тебя v{__version__})")
-                      if latest else g("  обновлений нет"))
-            except Exception as e:
-                print(y(f"  проверить не удалось: {e}"))
-
-        elif choice == "n":
-            ok = test_notify()
-            print(g("  уведомление отправлено") if ok
-                  else r(f"  не удалось: {notify_hint()}"))
-
-        else:
-            print(y("  нет такого пункта"))
-
-        redraw()
-
-    print(dim("  готово."))
-
-
-# ── helpers ──
-
-def c(txt, code):
-    from rb_tui.utils import COLOR
-    return f"\033[{code}m{txt}\033[0m" if COLOR else str(txt)
-
-
-def _cmd_fuzzy(query, metrics):
-    """Поиск модели по описанию / рекомендация."""
-    query = query.lower()
-    results = []
-
-    # Ищем по имени
-    for mid in metrics:
-        if query in mid.lower() or query in mid.replace("-", " ").lower():
-            st = model_status(metrics, mid)
-            avg_t = avg_ttft(metrics, mid)
-            rate = success_rate(metrics, mid)
-            results.append((mid, st, avg_t, rate))
-
-    if not results:
-        # Если ничего не нашли — показываем топ по задаче
-        print(dim(f"  по запросу '{query}' ничего не найдено. Показываю топ:"))
-        print_top(metrics, n=5)
-        return
-
-    print(bold(f"  РЕЗУЛЬТАТЫ ПО ЗАПРОСУ: {query}"))
-    print(f"  {'Модель':<34} {'Статус':<9} {'TTFT':<8} {'Success':<8}")
-    print(dim("  " + "─" * 65))
-    for mid, st, avg_t, rate in sorted(results, key=lambda x: avg_ttft(metrics, x[0]) or 999):
-        st_badge = g("stable") if st == "stable" else (y("unstable") if st == "unstable" else (r("dead") if st == "dead" else dim("?")))
-        ttft_s = f"{avg_t:.3f}s" if avg_t is not None else "-"
-        rate_s = f"{rate}%" if rate is not None else "-"
-        print(f"  {mid:<34} {st_badge:<9} {ttft_s:<8} {rate_s:<8}")
-
-    # Рекомендация
-    rec = [m for m, s, _, r in results if s == "stable" and r and r >= 80]
-    if not rec:
-        rec = [m for m, _, _, _ in results]
-    if rec:
-        best = min(rec, key=lambda m: (avg_ttft(metrics, m) or 999))
-        print(f"\n  {g('→ рекомендуем:')} {bold(best)} (TTFT {avg_ttft(metrics, best)}s)")
-
-
-def _cmd_bench(base, key, model_id):
-    """Бенчмарк модели на нескольких задачах (стриминговый замер)."""
-    print(bold(f"  БЕНЧМАРК: {model_id}"))
-    rows = bench_model(base, key, model_id)
-    print(dim(f"  проверено промптов: {len(rows)}"))
-    print_bench_results(rows, model_id)
-
-
-def _cmd_compare(base, key, model_a, model_b):
-    """A/B сравнение двух моделей."""
-    results = compare_models(base, key, model_a, model_b)
-    print_compare_results(results, model_a, model_b)
-
-
-def _cmd_speed(base, key, model_id):
-    """Замерить tokens/s."""
-    tps, err = speed_test(base, key, model_id)
-    print_speed_result(model_id, tps, err)
-
-
-def _cmd_watch(base, key, interval=300, runs=0, budget=None):
-    """Режим наблюдения: каждые N секунд обновлять статус порцией моделей."""
-    from rb_tui.metrics import load_metrics, model_status
-
-    print(bold("  WATCH MODE"))
-    limit = f", {runs} циклов" if runs > 0 else ""
-    print(dim(f"  обновление каждые {interval} сек{limit}, Ctrl+C для выхода"))
-    print()
-
-    done = 0
-    try:
-        while runs <= 0 or done < runs:
-            done += 1
-            live, _, err = fetch_catalog(base, key)
-            if live is None:
-                print(r(f"  каталог недоступен: {err}"))
-                if runs > 0 and done >= runs:
-                    break
-                time.sleep(interval)
-                continue
-
-            results, _throttled = run_probe_cycle(
-                base, key, live, budget=budget, progress=False, verbose=False)
-
-            ts = datetime.now().strftime("%H:%M:%S")
-            if results is None:
-                line = guard.cooldown_status_line() or "пробы на паузе"
-                print(f"  [{ts}] {y(line)}")
-            elif not results:
-                print(f"  [{ts}] {dim('нет моделей для проверки')}")
-            else:
-                metrics = load_metrics()
-                ok = sum(1 for _, s, _, _, _, _, _, _ in results if s == "OK")
-                stable = sum(1 for r_ in results if model_status(metrics, r_[0]) == "stable")
-                print(f"  [{ts}] {g(str(ok))}/{len(results)} живых, {g(str(stable))} stable")
-
-            if runs > 0 and done >= runs:
-                break
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        print("\n  watch остановлен")
+    interactive.run(
+        base=base, key=key, live=live, new=new, gone=gone, prev_date=prev_date,
+        appeared=appeared, disappeared=disappeared, cfg_models=cfg_models,
+        probe_budget=args.probe_budget,
+    )
 
 
 if __name__ == "__main__":
