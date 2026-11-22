@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 from rb_tui import __version__
+from rb_tui import console, crash, paths
 from rb_tui.utils import (
     CONFIG, CACHE, INTERACTIVE, g, r, y, bl, cy, dim, bold,
     fzf_multi, prune_backups, backup_config, load_tags, set_tag,
@@ -36,10 +37,17 @@ from rb_tui.sync import (
 )
 from rb_tui.alerts import (
     desktop_notify, notify_new_models, notify_stable_to_dead, notify_anomalies,
-    send_webhook, build_webhook_payload, test_notify, webhook_format,
+    send_webhook, build_webhook_payload, test_notify, webhook_format, notify_hint,
 )
 from rb_tui.export import export_json, export_csv, export_html
 from rb_tui.dashboard import serve
+
+
+def fail(message, code=1):
+    """Показать ошибку и выйти, не закрывая окно на Windows мгновенно."""
+    print(r(message))
+    console.wait_before_exit()
+    sys.exit(code)
 
 
 def reserve_probes(count, models=None):
@@ -128,6 +136,8 @@ def notify_update_available():
 
 
 def main():
+    # CONFIG переопределяется флагом --config; остальное — аргументы.
+    global CONFIG
     # ── парсинг аргументов ──
     import argparse
     parser = argparse.ArgumentParser(
@@ -205,11 +215,35 @@ def main():
                         help="Обновить standalone-бинарник до последнего релиза")
     parser.add_argument("--update-check", action="store_true",
                         help="Проверить, есть ли новая версия")
+    parser.add_argument("--config", type=str, default=None, metavar="PATH",
+                        help="Путь к opencode.json/jsonc (иначе ищется по ОС)")
+    parser.add_argument("--diag", action="store_true",
+                        help="Показать диагностику для отчёта об ошибке")
+    parser.add_argument("--report-bug", nargs="?", const="", type=str, default=None,
+                        metavar="FILE",
+                        help="Открыть Issue с сохранённым отчётом о падении")
 
     args = parser.parse_args()
 
+    # Перехват падений ставим до любой реальной работы.
+    crash.install()
+
+    if args.config:
+        CONFIG = paths.set_config_path(args.config)
+
     if args.version:
         print(f"rb-tui v{__version__}")
+        return
+
+    if args.diag:
+        print(crash.diagnostics_text())
+        return
+
+    if args.report_bug is not None:
+        try:
+            crash.send_report(args.report_bug or None)
+        except (OSError, ValueError) as e:
+            fail(f"  {e}")
         return
 
     if args.update_check:
@@ -217,8 +251,7 @@ def main():
         try:
             current, latest, newer = updater.check()
         except updater.UpdateError as e:
-            print(r(f"  {e}"))
-            sys.exit(1)
+            fail(f"  {e}")
         if newer:
             print(y(f"  есть новая версия: v{current} → v{latest}"))
             print(dim("  обновить: rb-tui --update"))
@@ -231,8 +264,7 @@ def main():
         try:
             updater.update(progress=lambda msg: print(msg))
         except updater.UpdateError as e:
-            print(r(f"  {e}"))
-            sys.exit(1)
+            fail(f"  {e}")
         return
 
     notify_update_available()
@@ -257,12 +289,17 @@ def main():
     if args.test_notify:
         ok = test_notify()
         print(g("  уведомление отправлено") if ok
-              else r("  не удалось: проверь notify-send и права на DBus"))
+              else r(f"  не удалось: {notify_hint()}"))
         return
 
     if not os.path.isfile(CONFIG):
         print(r(f"конфиг не найден: {CONFIG}"))
-        sys.exit(1)
+        print(dim("  проверены пути:"))
+        for path in paths.searched_paths():
+            print(dim(f"    {path}"))
+        print(dim("  укажи путь вручную: rb-tui --config <файл> "
+                  "или переменной RB_TUI_CONFIG"))
+        fail("  без конфига OpenCode работать не с чем")
 
     # ── загрузка конфига ──
     try:
@@ -274,17 +311,14 @@ def main():
             try:
                 raw, settings, cfg_models = load_config()
             except Exception as e2:
-                print(r(f"после отката всё ещё не читается: {e2}"))
-                sys.exit(1)
+                fail(f"после отката всё ещё не читается: {e2}")
         else:
-            print(r(f"не смог разобрать конфиг: {e} ({msg})"))
-            sys.exit(1)
+            fail(f"не смог разобрать конфиг: {e} ({msg})")
 
     key = api_key(settings)
     base = settings.get("baseURL", "https://api.reformboss.com/v1")
     if not key:
-        print(r("apiKey не найден."))
-        sys.exit(1)
+        fail("apiKey не найден.")
 
     # ── команды, которым не нужен каталог ──
     if args.diff:
@@ -427,8 +461,7 @@ def main():
     # ── fetch catalog ──
     live, owned, err = fetch_catalog(base, key)
     if live is None:
-        print(r(f"каталог недоступен: {err}"))
-        sys.exit(1)
+        fail(f"каталог недоступен: {err}")
 
     new = [m for m in live if m not in cfg_models]
     gone = [m for m in cfg_models if m not in live]
