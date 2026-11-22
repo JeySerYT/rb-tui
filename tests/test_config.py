@@ -101,6 +101,7 @@ class ConfigTest(unittest.TestCase):
         issues = config.config_check()
         self.assertTrue(any("не найден" in i for i in issues))
 
+    @unittest.skipUnless(os.name == "posix", "биты прав есть только на POSIX")
     def test_config_check_flags_insecure_key_permissions(self):
         os.chmod(self.key, 0o644)
         issues = config.config_check()
@@ -116,6 +117,7 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(any("baseURL" in i for i in issues))
         self.assertTrue(any("пустым name" in i for i in issues))
 
+    @unittest.skipUnless(os.name == "posix", "биты прав есть только на POSIX")
     def test_apply_edits_restores_readable_permissions(self):
         config.apply_edits(["gamma"], [], [], "22.11.2026")
         mode = stat.S_IMODE(os.stat(self.path).st_mode)

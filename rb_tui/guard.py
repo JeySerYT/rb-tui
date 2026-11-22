@@ -15,7 +15,7 @@ import random
 import time
 from datetime import datetime
 
-from rb_tui.utils import CACHE
+from rb_tui.utils import CACHE, atomic_write
 
 PROBE_STATE = os.path.join(CACHE, "probe-state.json")
 
@@ -72,10 +72,7 @@ def load_state():
 
 
 def save_state(state):
-    tmp = PROBE_STATE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, PROBE_STATE)
+    atomic_write(PROBE_STATE, json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def cooldown_remaining(state=None):

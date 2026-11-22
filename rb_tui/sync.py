@@ -8,6 +8,7 @@ from datetime import datetime
 from rb_tui.utils import (
     CACHE, STATE, MISSING, LOG, CONFIG,
     backup_config, prune_backups, parse_ok, atomic_write, atomic_copy,
+    backup_prefix,
 )
 from rb_tui.config import apply_edits
 
@@ -113,8 +114,9 @@ def auto_sync(new, gone, live):
 
 def auto_rollback():
     """Откатиться к последнему валидному бэкапу, если конфиг сломан."""
-    bak_dir = os.path.dirname(CONFIG)
-    baks = sorted([f for f in os.listdir(bak_dir) if f.startswith("opencode.json.bak-")],
+    bak_dir = os.path.dirname(CONFIG) or "."
+    prefix = backup_prefix()
+    baks = sorted([f for f in os.listdir(bak_dir) if f.startswith(prefix)],
                   reverse=True)
     for bak in baks:
         bak_path = os.path.join(bak_dir, bak)

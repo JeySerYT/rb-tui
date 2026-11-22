@@ -14,7 +14,8 @@ def api_key(settings):
         path = os.path.expanduser(m.group(1))
         if not os.path.isfile(path):
             return None
-        with open(path, encoding="utf-8") as f:
+        # Блокнот сохраняет UTF-8 с BOM: без utf-8-sig BOM уедет в заголовок.
+        with open(path, encoding="utf-8-sig") as f:
             return f.read().strip()
     return key
 

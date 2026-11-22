@@ -8,11 +8,13 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 
-HOME = os.path.expanduser("~")
-CONFIG = os.path.join(HOME, ".config/opencode/opencode.json")
-CACHE = os.path.join(HOME, ".config/reformboss-tui")
+from rb_tui import console, paths
+
+CONFIG = paths.discover_config()
+CACHE = paths.cache_dir()
 STATE = os.path.join(CACHE, "catalog-state.json")
 MISSING = os.path.join(CACHE, "missing.json")
 LOG = os.path.join(CACHE, "auto-sync.log")
@@ -25,11 +27,9 @@ MAX_HISTORY = 200
 
 os.makedirs(CACHE, exist_ok=True)
 
-COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+ANSI = console.setup()
+COLOR = ANSI and console.can_color() and os.environ.get("NO_COLOR") is None
 INTERACTIVE = sys.stdin.isatty() and sys.stdout.isatty()
-
-if os.name == "nt" and COLOR:
-    os.system("")
 
 
 # ── ANSI colors ──
@@ -99,6 +99,20 @@ def pretty_name(mid):
 
 # ── Атомарная запись ──
 
+def _replace_with_retry(src, dst, attempts=3):
+    """os.replace с повторами: на Windows файл бывает занят антивирусом."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError as e:
+            if attempt == attempts - 1:
+                raise OSError(
+                    f"не удалось перезаписать {dst}: файл занят другой программой"
+                ) from e
+            time.sleep(0.15 * (attempt + 1))
+
+
 def atomic_write(path, text):
     """Записать файл атомарно: tmp в том же каталоге + os.replace.
 
@@ -119,7 +133,7 @@ def atomic_write(path, text):
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -136,7 +150,7 @@ def atomic_copy(src, dst):
     os.close(fd)
     try:
         shutil.copy2(src, tmp)
-        os.replace(tmp, dst)
+        _replace_with_retry(tmp, dst)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -157,8 +171,13 @@ def append_jsonl(path, entry):
 
 # ── Бэкапы ──
 
+def backup_prefix():
+    """Имя бэкапа зависит от конфига: opencode.json.bak- или opencode.jsonc.bak-."""
+    return os.path.basename(CONFIG) + ".bak-"
+
+
 def backup_config():
-    bak = CONFIG + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    bak = CONFIG + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     shutil.copy2(CONFIG, bak)
     return bak
 
@@ -168,10 +187,12 @@ def prune_backups(days=30, dry_run=False):
     now = datetime.now().timestamp()
     cutoff = now - days * 86400
     removed = 0
-    for fname in os.listdir(os.path.dirname(CONFIG)):
-        if not fname.startswith("opencode.json.bak-"):
+    directory = os.path.dirname(CONFIG) or "."
+    prefix = backup_prefix()
+    for fname in os.listdir(directory):
+        if not fname.startswith(prefix):
             continue
-        fpath = os.path.join(os.path.dirname(CONFIG), fname)
+        fpath = os.path.join(directory, fname)
         try:
             ftime = os.path.getmtime(fpath)
             if ftime < cutoff:
@@ -187,18 +208,19 @@ def prune_backups(days=30, dry_run=False):
 
 def backup_count():
     """Сколько бэкапов существует."""
-    return len([f for f in os.listdir(os.path.dirname(CONFIG))
-                if f.startswith("opencode.json.bak-")])
+    prefix = backup_prefix()
+    directory = os.path.dirname(CONFIG) or "."
+    return len([f for f in os.listdir(directory) if f.startswith(prefix)])
 
 
 # ── fzf ──
 
 def fzf_multi(items, header, prompt):
+    """Выбрать несколько элементов. fzf, а без него — нумерованный список."""
     if not items:
         return []
     if shutil.which("fzf") is None:
-        print(y("fzf не установлен (apt install fzf / pacman -S fzf)"))
-        return []
+        return _numbered_pick(items, header, prompt)
     p = subprocess.run(
         ["fzf", "-m", "--prompt", prompt, "--header", header,
          "--height", "~80%", "--border", "--reverse"],
@@ -206,6 +228,49 @@ def fzf_multi(items, header, prompt):
     if p.returncode != 0:
         return []
     return [l.strip() for l in p.stdout.splitlines() if l.strip()]
+
+
+def parse_selection(raw, count):
+    """Разобрать ввод вида `1,3,5`, `2-4`, `all` в список индексов (0-based)."""
+    raw = (raw or "").strip().lower()
+    if not raw:
+        return []
+    if raw in ("all", "все", "*"):
+        return list(range(count))
+    picked = []
+    for part in raw.replace(" ", "").split(","):
+        if not part:
+            continue
+        start, sep, end = part.partition("-")
+        if sep and start.isdigit() and end.isdigit():
+            bounds = (int(start), int(end))
+        elif part.isdigit():
+            bounds = (int(part), int(part))
+        else:
+            continue
+        for number in range(min(bounds), max(bounds) + 1):
+            if 1 <= number <= count and number - 1 not in picked:
+                picked.append(number - 1)
+    return picked
+
+
+def _numbered_pick(items, header, prompt):
+    """Fallback без fzf: те же элементы, выбор номерами."""
+    if not sys.stdin.isatty():
+        print(y("  fzf не установлен, а ввод не интерактивный — выбор пропущен"))
+        print(dim("  установи fzf или запусти в терминале"))
+        return []
+    print(dim("  " + header))
+    for number, item in enumerate(items, 1):
+        print(f"  {number:>3}. {item}")
+    print(dim("  номера через запятую (1,3,5), диапазон 2-4, all — всё, "
+              "пусто — отмена"))
+    try:
+        raw = input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return []
+    return [items[index] for index in parse_selection(raw, len(items))]
 
 
 # ── Тэги моделей ──

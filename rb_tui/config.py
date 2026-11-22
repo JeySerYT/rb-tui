@@ -6,7 +6,8 @@ import re
 from datetime import datetime
 
 from rb_tui.utils import (
-    CONFIG, CACHE, STATE, strip_jsonc, parse_ok, pretty_name, backup_config, atomic_write,
+    CONFIG, CACHE, STATE, strip_jsonc, parse_ok, pretty_name, backup_config,
+    atomic_write, backup_prefix,
 )
 
 
@@ -177,8 +178,9 @@ def diff_with_last_backup():
     """Показать diff между последним бэкапом и текущим конфигом."""
     import difflib
 
-    bak_dir = os.path.dirname(CONFIG)
-    baks = sorted([f for f in os.listdir(bak_dir) if f.startswith("opencode.json.bak-")])
+    bak_dir = os.path.dirname(CONFIG) or "."
+    prefix = backup_prefix()
+    baks = sorted([f for f in os.listdir(bak_dir) if f.startswith(prefix)])
     if not baks:
         return "нет бэкапов для сравнения"
 
@@ -191,7 +193,8 @@ def diff_with_last_backup():
     new_lines = new.splitlines()
     diff = difflib.unified_diff(
         old_lines, new_lines,
-        fromfile=f"backup/{baks[-1]}", tofile="current/opencode.json",
+        fromfile=f"backup/{baks[-1]}",
+        tofile=f"current/{os.path.basename(CONFIG)}",
         lineterm=""
     )
     return "\n".join(diff)
@@ -239,6 +242,8 @@ def config_check():
         settings = {}
 
     api_key = settings.get("apiKey")
+    # На Windows биты прав синтетические: chmod 600 там нет и совет вводит в заблуждение.
+    check_modes = os.name == "posix"
     if not api_key:
         issues.append("❌ Нет apiKey в настройках reformboss")
     else:
@@ -247,7 +252,7 @@ def config_check():
             key_path = os.path.expanduser(m.group(1))
             if not os.path.isfile(key_path):
                 issues.append(f"❌ Файл с ключом не найден: {key_path}")
-            else:
+            elif check_modes:
                 try:
                     mode = os.stat(key_path).st_mode
                     if mode & 0o077:
@@ -257,7 +262,7 @@ def config_check():
                         )
                 except OSError:
                     pass
-        else:
+        elif check_modes:
             try:
                 mode = os.stat(CONFIG).st_mode
                 if mode & 0o004:
