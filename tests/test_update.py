@@ -285,7 +285,9 @@ class WindowsReplaceTest(unittest.TestCase):
         staged = helper.call_args[0][0]
         self.addCleanup(lambda: os.path.exists(staged) and os.unlink(staged))
         self.assertTrue(os.path.exists(staged))
-        self.assertEqual(os.stat(staged).st_mode & 0o777, 0o700)
+        # На Windows биты прав синтезируются — проверяем только на POSIX.
+        if os.name == "posix":
+            self.assertEqual(os.stat(staged).st_mode & 0o777, 0o700)
         with open(target, "rb") as f:
             self.assertEqual(f.read(), b"old")
 
