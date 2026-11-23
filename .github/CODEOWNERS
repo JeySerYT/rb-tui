@@ -1,0 +1,11 @@
+# Владелец всех файлов; строка ниже покрывает и сам CODEOWNERS.
+* @JeySerYT
+
+# Чувствительные пути: сборка, релизы, зависимости и версия.
+/.github/ @JeySerYT
+/.github/workflows/ @JeySerYT
+/scripts/ @JeySerYT
+/pyproject.toml @JeySerYT
+/VERSION @JeySerYT
+/install.sh @JeySerYT
+/install.ps1 @JeySerYT
