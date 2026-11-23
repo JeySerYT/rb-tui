@@ -1,118 +1,119 @@
-# Кодекс поведения участника
+# Contributor Code of Conduct
 
-## Наши обязательства
+## Our Pledge
 
-Мы, как участники, авторы и лидеры, обязуемся сделать участие в сообществе
-свободным от притеснений для всех, независимо от возраста, телосложения,
-видимых или невидимых ограничений способности, этнической принадлежности,
-половых признаков, гендерной идентичности и выражения, уровня опыта,
-образования, социально-экономического статуса, национальности, внешности,
-расы, касты, цвета, религии или сексуальной идентичности и ориентации.
+We as members, contributors, and leaders pledge to make participation in our
+community a harassment-free experience for everyone, regardless of age, body
+size, visible or invisible disability, ethnicity, sex characteristics, gender
+identity and expression, level of experience, education, socio-economic status,
+nationality, appearance, race, caste, color, religion, or sexual identity and
+orientation.
 
-Мы обещаем действовать и взаимодействовать так, чтобы вносить вклад
-в открытое, дружелюбное, многообразное, инклюзивное и здоровое сообщество.
+We pledge to act and interact in ways that contribute to an open, welcoming,
+diverse, inclusive, and healthy community.
 
-## Наши стандарты
+## Our Standards
 
-Примеры поведения, создающего благоприятные взаимоотношения:
+Examples of behavior that contributes to a positive environment:
 
-- проявление доброты и эмпатии к другим участникам;
-- уважение к чужой точке зрения и опыту;
-- конструктивная критика и принятие конструктивной критики;
-- принятие ответственности, извинения перед теми, кто пострадал от наших
-  ошибок, и извлечение уроков;
-- ориентация на то, что лучше для сообщества, а не только для нас лично.
+- demonstrating kindness and empathy toward other participants;
+- respecting others' viewpoints and experiences;
+- giving and gracefully accepting constructive feedback;
+- accepting responsibility, apologizing to those affected by our mistakes, and
+  learning from the experience;
+- focusing on what is best for the community, not just for us as individuals.
 
-Примеры неприемлемого поведения:
+Examples of unacceptable behavior:
 
-- сексуальные выражения или изображения и нежелательное сексуальное
-  внимание или домогательство в любой форме;
-- троллинг, оскорбительные или уничижительные комментарии, переход
-  на личности, затрагивание политических убеждений;
-- публичное или приватное домогательство;
-- публикация личной информации других лиц без явного разрешения;
-- иное поведение, которое обоснованно считать неуместным в профессиональной
-  обстановке.
+- sexualized language or imagery, and unwanted sexual attention or advances of
+  any kind;
+- trolling, insulting or derogatory comments, personal attacks, or bringing up
+  political beliefs;
+- public or private harassment;
+- publishing others' private information without their explicit permission;
+- other conduct which could reasonably be considered inappropriate in a
+  professional setting.
 
-## Обязанности
+## Responsibilities
 
-Лидеры сообщества отвечают за разъяснение и применение стандартов
-приемлемого поведения и принимают соответствующие и честные меры в ответ
-на поведение, которое сочтут неприемлемым, угрожающим, оскорбительным
-или вредным.
+Community leaders are responsible for clarifying and enforcing our standards of
+acceptable behavior and will take appropriate and fair corrective action in
+response to any behavior that they deem inappropriate, threatening, offensive,
+or harmful.
 
-Лидеры сообщества вправе удалять, редактировать или отклонять комментарии,
-коммиты, код, изменения в вики, вопросы и другой вклад, который не совпадает
-с кодексом, и объясняют причины решения, когда считают нужным.
+Community leaders have the right to remove, edit, or reject comments, commits,
+code, wiki edits, issues, and other contributions that do not align with this
+Code of Conduct, and will communicate reasons for moderation decisions when
+they consider it appropriate.
 
-## Область применения
+## Scope
 
-Кодекс действует во всех публичных пространствах сообщества, а также когда
-человек официально представляет проект в публичных местах: официальная
-почта, аккаунт в соцсетях, упоминание как представителя на онлайн-
-или офлайн-мероприятии.
+This Code of Conduct applies within all community spaces, and also when an
+individual is officially representing the project in public spaces: official
+mail, a social media account, or being mentioned as a representative at an
+online or offline event.
 
-## Приведение в исполнение
+## Enforcement
 
-О домогательстве, оскорбительном или ином неприемлемом поведении можно
-сообщить приватно:
+Instances of harassment, abusive, or otherwise unacceptable behavior can be
+reported privately:
 
-- через [Security Advisory](https://github.com/JeySerYT/rb-tui/security/advisories/new)
-  с пометкой `conduct` в заголовке;
-- написав maintainer'у [@JeySerYT](https://github.com/JeySerYT).
+- via a [Security Advisory](https://github.com/JeySerYT/rb-tui/security/advisories/new)
+  with the `conduct` tag in the title;
+- by writing to the maintainer [@JeySerYT](https://github.com/JeySerYT).
 
-Все жалобы рассматриваются и расследуются оперативно и беспристрастно.
-Лидеры сообщества обязаны уважать неприкосновенность частной жизни
-и безопасность автора сообщения.
+All complaints will be reviewed and investigated promptly and fairly.
+Community leaders are obligated to respect the privacy and security of the
+reporter.
 
-## Руководство по исполнению
+## Enforcement Guidelines
 
-Лидеры сообщества следуют принципам воздействия, чтобы определить
-последствия для нарушителей.
+Community leaders follow the impact principles to determine the consequences
+for violators.
 
-### 1. Исправление
+### 1. Correction
 
-**Влияние:** недопустимая лексика или поведение, неуместное в сообществе.
+**Impact:** inappropriate language or behavior unwelcome in the community.
 
-**Последствия:** личное письменное предупреждение с объяснением, в чём
-нарушение и почему оно неуместно. Возможна просьба о публичном извинении.
+**Consequence:** a private, written warning explaining what the violation was
+and why it was inappropriate. A public apology may be requested.
 
-### 2. Предупреждение
+### 2. Warning
 
-**Влияние:** нарушение в результате одного инцидента или серии действий.
+**Impact:** a violation through a single incident or a series of actions.
 
-**Последствия:** предупреждение о последствиях при продолжении. На время
-запрещается взаимодействие с людьми, вовлечёнными в инцидент, включая
-непрошенное общение с теми, кто обеспечивает соблюдение кодекса. Это
-касается публичных пространств и внешних каналов. Нарушение ведёт
-к временному или постоянному бану.
+**Consequence:** a warning with consequences for continued behavior. For a
+specified period, interaction with the people involved in the incident is
+prohibited, including unsolicited communication with those enforcing this Code
+of Conduct. This applies to public spaces and external channels. Violating
+these terms may lead to a temporary or permanent ban.
 
-### 3. Временный бан
+### 3. Temporary Ban
 
-**Влияние:** серьёзное нарушение стандартов, включая продолжительное
-неуместное поведение.
+**Impact:** a serious violation of community standards, including sustained
+inappropriate behavior.
 
-**Последствия:** временный запрет на любое взаимодействие или публичное
-общение с сообществом. В этот период запрещено публичное и личное
-взаимодействие с участниками инцидента, включая непрошенное общение
-с теми, кто обеспечивает соблюдение кодекса. Нарушение ведёт
-к постоянному бану.
+**Consequence:** a temporary ban from any sort of interaction or public
+communication with the community. During this period, public and private
+interaction with the people involved in the incident is prohibited, including
+unsolicited communication with those enforcing this Code of Conduct. Violating
+these terms may lead to a permanent ban.
 
-### 4. Постоянный бан
+### 4. Permanent Ban
 
-**Влияние:** систематические нарушения стандартов, домогательство
-до отдельных лиц, агрессия или пренебрежение к категориям лиц.
+**Impact:** a pattern of systematic violations of the standards, harassment of
+individuals, or aggression or contempt toward categories of people.
 
-**Последствия:** постоянный запрет на любое публичное взаимодействие
-с сообществом.
+**Consequence:** a permanent ban from any sort of public interaction with the
+community.
 
-## Атрибуция
+## Attribution
 
-Кодекс основан на [Contributor Covenant](https://www.contributor-covenant.org),
-версия 2.1: <https://www.contributor-covenant.org/ru/version/2/1/code_of_conduct/>.
+This Code of Conduct is based on the [Contributor Covenant](https://www.contributor-covenant.org),
+version 2.1: <https://www.contributor-covenant.org/ru/version/2/1/code_of_conduct/>.
 
-Принципы воздействия вдохновлены
+The impact principles were inspired by
 [Mozilla's code of conduct enforcement ladder](https://github.com/mozilla/diversity).
 
-Ответы на частые вопросы: <https://www.contributor-covenant.org/faq>.
-Переводы: <https://www.contributor-covenant.org/translations>.
+For answers to common questions: <https://www.contributor-covenant.org/faq>.
+Translations: <https://www.contributor-covenant.org/translations>.

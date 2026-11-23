@@ -1,26 +1,26 @@
-# Как помочь rb-tui
+# How to contribute to rb-tui
 
-Спасибо, что дошёл до этого файла. Ниже — короткий путь от идеи до
-принятого изменения.
+Thanks for making it to this file. Below is a short path from an idea to an
+accepted change.
 
-## Что приветствуется
+## What's welcome
 
-- Исправления ошибок с тестом, который их ловит.
-- Новые команды и метрики, если они не обходят guard и не увеличивают
-  нагрузку на API.
-- Улучшения Windows и macOS: пути, консоль, установка, уведомления.
-- Документация: README, CHANGELOG, сообщения об ошибках.
+- Bug fixes with a test that catches the bug.
+- New commands and metrics, as long as they don't bypass guards or increase
+  the load on the API.
+- Improvements for Windows and macOS: paths, console, installation, notifications.
+- Documentation: README, CHANGELOG, error messages.
 
-## Что не принимается
+## What's not accepted
 
-- Обход суточного бюджета, cooldown или ротации проб.
-- Массовый опрос API ReformBoss.
-- Облачные зависимости и телеметрия: rb-tui остаётся локальным.
-- Ключи, токены и чужие персональные данные в коде, тестах и Issue.
+- Bypassing the daily budget, cooldown, or probe rotation.
+- Mass polling of the ReformBoss API.
+- Cloud dependencies and telemetry: rb-tui stays local.
+- Keys, tokens, and other people's personal data in code, tests, and issues.
 
-## Окружение
+## Environment
 
-Нужен Python 3.10+.
+Python 3.10+ is required.
 
 ```bash
 git clone https://github.com/JeySerYT/rb-tui
@@ -30,35 +30,35 @@ python3 -m venv .venv
 pip install -e .
 ```
 
-## Тесты
+## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Тесты не ходят в сеть: API, пробы и обновления подменяются моками. Если
-добавляешь поведение — добавь тест, который падает без изменения.
+Tests don't access the network: the API, probes, and updates are replaced with
+mocks. If you add behavior, add a test that fails without the change.
 
-## Стиль
+## Style
 
-- PEP 8, отступ 4 пробела, длина строки около 88 символов.
-- Имена и код — по-английски, сообщения пользователю — по-русски.
-- Без новых зависимостей без причины: standalone-бинарник не должен расти.
-- Ошибки формулируй так, чтобы было понятно, что делать дальше.
+- PEP 8, 4-space indentation, line length around 88 characters.
+- Names and code in English, user-facing messages in Russian.
+- No new dependencies without a good reason: the standalone binary shouldn't grow.
+- Word errors so it's clear what to do next.
 
-## Коммиты и pull request
+## Commits and pull requests
 
-- Один коммит — одна логическая правка.
-- Формат сообщения — Conventional Commits: `fix(probe): …`, `feat(cli): …`.
-- В теле коммита — почему изменение нужно и как проверено.
-- В PR заполни шаблон: что меняется, зачем, как проверено.
-- Перед отправкой обнови CHANGELOG, если изменение видит пользователь.
+- One commit per logical change.
+- Message format — Conventional Commits: `fix(probe): …`, `feat(cli): …`.
+- In the commit body, explain why the change is needed and how it was tested.
+- In the PR, fill out the template: what changes, why, and how it was tested.
+- Before submitting, update CHANGELOG if the change is user-visible.
 
-## Безопасность
+## Security
 
-Не открывай публичный Issue об уязвимости. Инструкция — в
+Don't open a public issue about a vulnerability. The instructions are in
 [SECURITY.md](SECURITY.md).
 
-## Поведение
+## Code of conduct
 
-Участвуя в проекте, ты соглашаешься с [кодексом поведения](CODE_OF_CONDUCT.md).
+By participating in the project, you agree to the [code of conduct](CODE_OF_CONDUCT.md).
