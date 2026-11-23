@@ -9,43 +9,43 @@
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![license](https://img.shields.io/github/license/JeySerYT/rb-tui)](LICENSE)
 
-CLI и локальный дашборд для каталога моделей ReformBoss.
+CLI and local dashboard for the ReformBoss model catalog.
 
-`rb-tui` сверяет каталог моделей ReformBoss с `opencode.json`, бережно проверяет
-доступность моделей, собирает TTFT/TTS/TPS, показывает аномалии и отдаёт всё
-это в терминале и в локальном веб-дашборде. Работает как standalone-бинарник
-на Linux, macOS и Windows — Python не нужен.
+`rb-tui` reconciles the ReformBoss model catalog with `opencode.json`, carefully checks
+model availability, collects TTFT/TTS/TPS, highlights anomalies, and delivers all
+of it in the terminal and in a local web dashboard. It runs as a standalone binary
+on Linux, macOS, and Windows — no Python needed.
 
-## Содержание
+## Contents
 
-- [Возможности](#возможности)
-- [Установка](#установка)
-- [Быстрый старт](#быстрый-старт)
-- [Команды](#команды)
-- [Конфигурация](#конфигурация)
-- [Дашборд](#дашборд)
-- [Бережное тестирование](#бережное-тестирование)
-- [Отчёты об ошибках](#отчёты-об-ошибках)
-- [Обновление](#обновление)
-- [Разработка](#разработка)
-- [Лицензия](#лицензия)
+- [Features](#features)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Dashboard](#dashboard)
+- [Careful testing](#careful-testing)
+- [Bug reports](#bug-reports)
+- [Updating](#updating)
+- [Development](#development)
+- [License](#license)
 
-## Возможности
+## Features
 
-- Сверка каталога с конфигом и безопасная правка `providers.reformboss.models`.
-- Проверки с бюджетом, ротацией и cooldown — без массового опроса API.
-- TTFT, TTS, TPS, success rate, health score и история в JSONL.
-- Аномалии: скачки задержек, падение TPS, смена `system_fingerprint`.
-- Desktop-уведомления и сводки в Slack, Discord или generic webhook.
-- Локальный дашборд с поиском, фильтрами, карточкой модели и экспортом.
-- Standalone-бинарники и самообновление из GitHub Releases.
-- Отчёт о падении с готовой формой Issue — без токена в бинарнике.
+- Reconcile the catalog with the config and safely edit `providers.reformboss.models`.
+- Checks with a budget, rotation, and cooldown — no mass API polling.
+- TTFT, TTS, TPS, success rate, health score, and history in JSONL.
+- Anomalies: latency spikes, TPS drops, and `system_fingerprint` changes.
+- Desktop notifications and summaries to Slack, Discord, or a generic webhook.
+- Local dashboard with search, filters, a model card, and export.
+- Standalone binaries and self-updating from GitHub Releases.
+- Crash report with a ready-to-fill Issue form — no token baked into the binary.
 
-## Установка
+## Installation
 
-### Одной командой
+### One command
 
-**Linux и macOS:**
+**Linux and macOS:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.sh | sh
@@ -57,17 +57,17 @@ curl -fsSL https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.sh | s
 irm https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.ps1 | iex
 ```
 
-Установщики скачивают бинарник, проверяют sha256 (`sha256sum` или
-`shasum -a 256`) и добавляют его в `PATH`. Каталог можно переопределить через
-`RB_TUI_INSTALL_DIR`, версию — через `RB_TUI_VERSION`, репозиторий — через
+The installers download the binary, verify sha256 (`sha256sum` or
+`shasum -a 256`), and add it to `PATH`. The directory can be overridden with
+`RB_TUI_INSTALL_DIR`, the version with `RB_TUI_VERSION`, and the repository with
 `RB_TUI_REPO`.
 
-### Вручную
+### Manually
 
-Со страницы [Releases](https://github.com/JeySerYT/rb-tui/releases) скачивается
-архив под систему:
+Download the archive for your system from the
+[Releases](https://github.com/JeySerYT/rb-tui/releases) page:
 
-| Платформа | Архив |
+| Platform | Archive |
 |---|---|
 | Linux x86_64 | `rb-tui-linux-x86_64.tar.gz` |
 | Linux ARM64 | `rb-tui-linux-arm64.tar.gz` |
@@ -75,10 +75,10 @@ irm https://raw.githubusercontent.com/JeySerYT/rb-tui/main/install.ps1 | iex
 | macOS Intel | `rb-tui-darwin-x86_64.tar.gz` |
 | Windows x86_64 | `rb-tui-windows-x86_64.zip` |
 
-Windows на ARM64 использует `windows-x86_64.zip` через эмуляцию x64.
-Распаковать и положить `rb-tui` (или `rb-tui.exe`) в каталог из `PATH`.
+Windows on ARM64 uses `windows-x86_64.zip` via x64 emulation.
+Extract it and place `rb-tui` (or `rb-tui.exe`) in a directory on `PATH`.
 
-### Из исходников
+### From source
 
 ```bash
 git clone https://github.com/JeySerYT/rb-tui
@@ -87,225 +87,225 @@ pip install -e .
 ```
 
 > [!NOTE]
-> Бинарники не подписаны. Windows может показать SmartScreen — «Подробнее» →
-> «Выполнить в любом случае»; установщик снимает Mark-of-the-Web сам.
-> Архив для macOS, скачанный вручную, получает карантин:
-> `xattr -d com.apple.quarantine ./rb-tui`. Установка через `curl | sh`
-> и `irm | iex` карантин не ставит.
+> The binaries are not signed. Windows may show SmartScreen — "More info" →
+> "Run anyway"; the installer removes the Mark-of-the-Web itself.
+> A macOS archive downloaded manually gets quarantined:
+> `xattr -d com.apple.quarantine ./rb-tui`. Installing via `curl | sh`
+> and `irm | iex` does not set a quarantine.
 
-## Быстрый старт
+## Quick start
 
 ```bash
-rb-tui                 # интерактивный режим
-rb-tui --report        # что в каталоге и конфиге
-rb-tui --test          # проверить порцию моделей
-rb-tui --top 10        # топ по TTFT
-rb-tui --serve         # дашборд на http://127.0.0.1:9090
+rb-tui                 # interactive mode
+rb-tui --report        # what's in the catalog and config
+rb-tui --test          # check a batch of models
+rb-tui --top 10        # top by TTFT
+rb-tui --serve         # dashboard at http://127.0.0.1:9090
 ```
 
-### Интерактивный режим
+### Interactive mode
 
-`rb-tui` без аргументов открывает главный экран: сверку каталога и конфига,
-строку состояния (health, stable/unstable/dead, число проверок) и меню по группам:
+`rb-tui` with no arguments opens the main screen: catalog/config reconciliation,
+a status line (health, stable/unstable/dead, number of checks), and a grouped menu:
 
-- **Каталог** — добавить новые модели, убрать пропавшие, тест доступности, сводка в лог;
-- **Метрики** — сводка с топом, аномалии, тренд и карточка модели;
-- **Инструменты** — проверка конфига, diff, теги, фильтр, обновление, уведомления;
-- **q** — выход.
+- **Catalog** — add new models, remove missing ones, availability test, summary to the log;
+- **Metrics** — summary with a top list, anomalies, trend, and model card;
+- **Tools** — config check, diff, tags, filter, update, notifications;
+- **q** — quit.
 
-Экран перерисовывается после каждого действия; `Ctrl+C` и `EOF` завершают сессию.
+The screen redraws after every action; `Ctrl+C` and `EOF` end the session.
 
-## Команды
+## Commands
 
-Полный список: `rb-tui --help`.
+Full list: `rb-tui --help`.
 
-### Каталог и конфиг
+### Catalog and config
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --sync` | Сверить каталог, обновить конфиг и проверить порцию |
-| `rb-tui --report` | Отчёт о каталоге |
-| `rb-tui --diff` | Diff конфига с последним бэкапом |
-| `rb-tui --config-check` | Проверить JSONC, ключ, права, baseURL и каталог |
-| `rb-tui --config <PATH>` | Указать конфиг вручную |
-| `rb-tui --prune-backups [N]` | Удалить бэкапы старше N дней |
+| `rb-tui --sync` | Reconcile the catalog, update the config, and check a batch |
+| `rb-tui --report` | Catalog report |
+| `rb-tui --diff` | Diff the config against the latest backup |
+| `rb-tui --config-check` | Check JSONC, key, permissions, baseURL, and catalog |
+| `rb-tui --config <PATH>` | Specify the config manually |
+| `rb-tui --prune-backups [N]` | Delete backups older than N days |
 
-### Проверки и метрики
+### Checks and metrics
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --test` | Проверить порцию моделей |
-| `rb-tui --probe-model <model>` | Проверить одну модель |
-| `rb-tui --probe-budget N` | Размер порции за прогон |
-| `rb-tui --probe-reset` | Снять паузу после срабатывания защиты |
-| `rb-tui --bench <model>` | Бенчмарк на 3 задачах |
-| `rb-tui --compare <A> <B>` | A/B сравнение моделей |
-| `rb-tui --speed <model>` | Замер tokens/s |
+| `rb-tui --test` | Check a batch of models |
+| `rb-tui --probe-model <model>` | Probe a single model |
+| `rb-tui --probe-budget N` | Batch size per run |
+| `rb-tui --probe-reset` | Clear the pause after a protection trip |
+| `rb-tui --bench <model>` | Benchmark on 3 tasks |
+| `rb-tui --compare <A> <B>` | A/B comparison of models |
+| `rb-tui --speed <model>` | Measure tokens/s |
 
-### Аналитика
+### Analytics
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --top [N]` | Топ моделей; `--sort ttft\|tps\|rate\|combined` |
-| `rb-tui --stats` | Сводка: статусы и health score |
-| `rb-tui --trend <model>` | Спарклайны TTFT/TTS/TPS |
-| `rb-tui --history <model>` | ASCII-график TTFT |
-| `rb-tui --info <model>` | Метрики, fingerprint, последняя ошибка |
-| `rb-tui --anomalies` | Аномалии и смена fingerprint |
-| `rb-tui --lifetime` | Когда появилась модель |
-| `rb-tui --fuzzy <query>` | Найти и рекомендовать модель |
-| `rb-tui --filter <tag>` | Фильтр по тегу |
-| `rb-tui --tag <model> <tag>` | Поставить тег |
-| `rb-tui --group-by-owner` | Группировка по `owned_by` |
-| `rb-tui --prune-metrics [N]` | Удалить историю старше N дней |
+| `rb-tui --top [N]` | Top models; `--sort ttft\|tps\|rate\|combined` |
+| `rb-tui --stats` | Summary: statuses and health score |
+| `rb-tui --trend <model>` | TTFT/TTS/TPS sparklines |
+| `rb-tui --history <model>` | ASCII chart of TTFT |
+| `rb-tui --info <model>` | Metrics, fingerprint, last error |
+| `rb-tui --anomalies` | Anomalies and fingerprint changes |
+| `rb-tui --lifetime` | When a model appeared |
+| `rb-tui --fuzzy <query>` | Find and recommend a model |
+| `rb-tui --filter <tag>` | Filter by tag |
+| `rb-tui --tag <model> <tag>` | Set a tag |
+| `rb-tui --group-by-owner` | Group by `owned_by` |
+| `rb-tui --prune-metrics [N]` | Delete history older than N days |
 
-### Дашборд и наблюдение
+### Dashboard and monitoring
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --serve` | Дашборд на `127.0.0.1:9090` |
-| `rb-tui --serve-host <host>` | Другой адрес (не-loopback — без авторизации) |
-| `rb-tui --watch` | Наблюдение каждые 5 минут |
-| `rb-tui --watch-interval SEC` | Другой интервал |
-| `rb-tui --watch-runs N` | Ограничить число циклов |
+| `rb-tui --serve` | Dashboard at `127.0.0.1:9090` |
+| `rb-tui --serve-host <host>` | Different address (non-loopback — no authorization) |
+| `rb-tui --watch` | Watch every 5 minutes |
+| `rb-tui --watch-interval SEC` | Different interval |
+| `rb-tui --watch-runs N` | Limit the number of runs |
 
-### Экспорт и уведомления
+### Export and notifications
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --json [path]` | Метрики в JSON |
-| `rb-tui --export-html [path]` | HTML-отчёт |
+| `rb-tui --json [path]` | Metrics to JSON |
+| `rb-tui --export-html [path]` | HTML report |
 | `rb-tui --export-csv [path]` | CSV |
-| `rb-tui --webhook <URL>` | Сводка в Slack, Discord или generic |
-| `rb-tui --test-notify` | Проверить desktop-уведомления |
+| `rb-tui --webhook <URL>` | Summary to Slack, Discord, or generic |
+| `rb-tui --test-notify` | Test desktop notifications |
 
-### Обслуживание
+### Maintenance
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `rb-tui --diag` | Диагностика для отчёта об ошибке |
-| `rb-tui --report-bug [FILE]` | Открыть Issue с сохранённым отчётом |
-| `rb-tui --update-check` | Проверить новую версию |
-| `rb-tui --update` | Обновить бинарник |
-| `rb-tui --version` | Версия |
+| `rb-tui --diag` | Diagnostics for a bug report |
+| `rb-tui --report-bug [FILE]` | Open an Issue with the saved report |
+| `rb-tui --update-check` | Check for a new version |
+| `rb-tui --update` | Update the binary |
+| `rb-tui --version` | Version |
 
-## Конфигурация
+## Configuration
 
-rb-tui ищет глобальный конфиг OpenCode так же, как сам OpenCode.
+rb-tui looks for the global OpenCode config the same way OpenCode itself does.
 
-| ОС | Каталоги конфига | Кеш rb-tui |
+| OS | Config directories | rb-tui cache |
 |---|---|---|
 | Linux | `$XDG_CONFIG_HOME/opencode`, `~/.config/opencode`, `/etc/opencode` | `~/.config/reformboss-tui` |
 | macOS | `~/Library/Application Support/opencode`, `~/.config/opencode`, `/Library/Application Support/opencode` | `~/.config/reformboss-tui` |
 | Windows | `%APPDATA%\opencode`, `~/.config/opencode`, `%ProgramData%\opencode` | `%LOCALAPPDATA%\rb-tui` |
 
-В каталоге проверяются `opencode.jsonc` и `opencode.json` (`.jsonc` важнее).
-Если `reformboss` есть только в другом файле из списка, выигрывает он.
-Переопределение: `--config <файл>`, `RB_TUI_CONFIG` или `OPENCODE_CONFIG_DIR`.
+The directory is checked for `opencode.jsonc` and `opencode.json` (`.jsonc` takes priority).
+If `reformboss` is present only in the other file in the list, that one wins.
+Override: `--config <path>`, `RB_TUI_CONFIG`, or `OPENCODE_CONFIG_DIR`.
 
-### Переменные окружения
+### Environment variables
 
-| Переменная | Значение |
+| Variable | Meaning |
 |---|---|
-| `RB_TUI_CONFIG` | Путь к конфигу OpenCode |
-| `RB_TUI_REPO` | Репозиторий обновлений, по умолчанию `JeySerYT/rb-tui` |
-| `RB_TUI_UPDATE_TTL` | Интервал проверки обновлений, секунды (`0` — каждый запуск) |
-| `RB_TUI_NO_UPDATE_CHECK` | `1` — не проверять обновления |
-| `RB_TUI_NO_CRASH_HOOK` | `1` — выключить перехват падений |
-| `RB_TUI_NO_REPORT_PROMPT` | `1` — не спрашивать, только печатать ссылку |
-| `REFORMBOSS_PROBE_BUDGET` | Моделей за прогон |
-| `REFORMBOSS_PROBE_DELAY` | Пауза между запросами, секунды |
-| `REFORMBOSS_DAILY_BUDGET` | Суточный лимит проб |
-| `REFORMBOSS_COOLDOWN` | Пауза после срабатывания защиты, секунды |
+| `RB_TUI_CONFIG` | Path to the OpenCode config |
+| `RB_TUI_REPO` | Update repository, defaults to `JeySerYT/rb-tui` |
+| `RB_TUI_UPDATE_TTL` | Update check interval, seconds (`0` — every run) |
+| `RB_TUI_NO_UPDATE_CHECK` | `1` — don't check for updates |
+| `RB_TUI_NO_CRASH_HOOK` | `1` — disable crash interception |
+| `RB_TUI_NO_REPORT_PROMPT` | `1` — don't prompt, just print the link |
+| `REFORMBOSS_PROBE_BUDGET` | Models per run |
+| `REFORMBOSS_PROBE_DELAY` | Delay between requests, seconds |
+| `REFORMBOSS_DAILY_BUDGET` | Daily probe limit |
+| `REFORMBOSS_COOLDOWN` | Pause after a protection trip, seconds |
 
-### История метрик
+### Metrics history
 
-- `metrics-history.jsonl` — полная история, одна JSON-запись на строку;
-- `metrics-history.json` — последние 200 проб на модель для быстрых запросов;
-- каталог кеша — в таблице выше.
+- `metrics-history.jsonl` — full history, one JSON record per line;
+- `metrics-history.json` — the last 200 probes per model for fast queries;
+- cache directory — in the table above.
 
-## Дашборд
+## Dashboard
 
-`rb-tui --serve` поднимает локальную панель. В ней поиск, фильтры по статусу,
-провайдеру и тегу, сортировка, автообновление каждые 30 секунд и карточка
-модели со спарклайнами и последними пробами. Экспорт: `/export.csv`,
-`/export.json`. Эндпоинты: `/health`, `/api/view`, `/api/metrics`,
+`rb-tui --serve` starts a local panel. It has search, filters by status,
+provider, and tag, sorting, auto-refresh every 30 seconds, and a model card
+with sparklines and recent probes. Export: `/export.csv`,
+`/export.json`. Endpoints: `/health`, `/api/view`, `/api/metrics`,
 `/api/model/<id>`.
 
-## Бережное тестирование
+## Careful testing
 
-API ReformBoss считает массовый опрос подозрительным, поэтому rb-tui:
+The ReformBoss API treats mass polling as suspicious, so rb-tui:
 
-- проверяет только модели из живого каталога;
-- берёт порцию 10 моделей (`--probe-budget`) по ротации;
-- держит паузу 3 секунды + случайный разброс;
-- ограничивает суточный бюджет 80 запросами — в него входят также
-  `--bench`, `--compare` и `--speed`;
-- при первом детекте защиты останавливается и уходит в паузу на 6 часов;
-  уже собранные результаты сохраняются, непроверенные модели не помечаются dead.
+- checks only models from the live catalog;
+- takes a batch of 10 models (`--probe-budget`) in rotation;
+- keeps a 3-second pause + random jitter;
+- limits the daily budget to 80 requests — including
+  `--bench`, `--compare`, and `--speed`;
+- stops and pauses for 6 hours on the first protection detection;
+  already collected results are kept, and untested models are not marked dead.
 
-## Отчёты об ошибках
+## Bug reports
 
-Необработанная ошибка сохраняется в кеш (три последних отчёта), секреты
-вычищаются, а в консоли предлагается открыть Issue:
+An unhandled error is saved to the cache (the last three reports), secrets
+are scrubbed, and the console offers to open an Issue:
 
 ```text
-[Enter] открыть Issue на GitHub с заполненным отчётом
-[v]     показать отчёт
-[n]     выйти без отчёта
+[Enter] open an Issue on GitHub with the filled-in report
+[v]     show the report
+[n]     exit without reporting
 ```
 
-Форма Issue открывается в браузере с заполненными полями: токен в бинарник
-не вшивается. `rb-tui --diag` печатает ту же диагностику без сети,
-`rb-tui --report-bug` открывает Issue по последнему отчёту. В пайпах и CI
-ничего не спрашивается.
+The Issue form opens in the browser with the fields filled in: no token is baked into
+the binary. `rb-tui --diag` prints the same diagnostics without network access,
+`rb-tui --report-bug` opens an Issue from the latest report. In pipes and CI
+nothing is prompted.
 
-## Обновление
+## Updating
 
 ```bash
 rb-tui --update-check
 rb-tui --update
 ```
 
-Бинарник проверяет новую версию при каждом запуске (не чаще раза в час),
-сверяет sha256 и атомарно заменяет себя. На Windows замена применяется после
-выхода. Из исходников `--update` не работает — обновляйся через `pip`.
+The binary checks for a new version on every run (at most once an hour),
+verifies sha256, and atomically replaces itself. On Windows, the replacement is applied after
+exit. When running from source, `--update` does not work — update via `pip`.
 
-## Разработка
+## Development
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Тесты не ходят в сеть: API, пробы и обновления подменяются моками.
+Tests do not access the network: API, probes, and updates are mocked.
 
 ```
 rb_tui/
-├── cli.py              # argparse и маршрутизация
-├── commands.py         # общие сценарии: пробы, bench, watch
-├── interactive.py      # меню при запуске без аргументов
-├── paths.py            # конфиг и кеш по ОС
-├── config.py           # чтение и правка JSONC
+├── cli.py              # argparse and routing
+├── commands.py         # shared flows: probes, bench, watch
+├── interactive.py      # menu when launched with no arguments
+├── paths.py            # config and cache per OS
+├── config.py           # reading and editing JSONC
 ├── probe.py            # TTFT, TTS, TPS, bench, compare
-├── guard.py            # бюджет, ротация, cooldown
-├── metrics.py          # история, статусы, аномалии
-├── render.py           # терминальные таблицы
-├── dashboard.py        # HTTP-сервер и HTML
-├── dashboard_view.py   # view-model дашборда
-├── alerts.py           # уведомления и вебхуки
+├── guard.py            # budget, rotation, cooldown
+├── metrics.py          # history, statuses, anomalies
+├── render.py           # terminal tables
+├── dashboard.py        # HTTP server and HTML
+├── dashboard_view.py   # dashboard view-model
+├── alerts.py           # notifications and webhooks
 ├── export.py           # JSON, HTML, CSV
-├── sync.py             # синхронизация и rollback
-├── update.py           # самообновление
-├── crash.py            # отчёт о падении
-├── console.py          # UTF-8, ANSI, пауза
-└── utils.py            # цвета, JSONC, атомарная запись
+├── sync.py             # synchronization and rollback
+├── update.py           # self-update
+├── crash.py            # crash report
+├── console.py          # UTF-8, ANSI, pause
+└── utils.py            # colors, JSONC, atomic writes
 ```
 
-Сборка бинарника: `scripts/build-binary.sh`. Релиз — тег `v*`; workflow собирает
-пять платформ и публикует архивы с контрольными суммами. Беты (`*-beta.*`)
-помечаются как pre-release. Установщики лежат по постоянным URL в корне
-репозитория и не копируются в каждый релиз.
+Build script for the binary: `scripts/build-binary.sh`. A release is a `v*` tag;
+the workflow builds five platforms and publishes archives with checksums. Betas
+(`*-beta.*`) are marked as pre-releases. The installers live at permanent URLs in
+the repository root and are not copied into every release.
 
-## Лицензия
+## License
 
-MIT — см. [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

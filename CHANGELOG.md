@@ -1,305 +1,305 @@
 # Changelog
 
-Все значимые изменения rb-tui. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
-версии — [Semantic Versioning](https://semver.org/lang/ru/).
+All notable changes to rb-tui. The format is based on [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
+and versions follow [Semantic Versioning](https://semver.org/lang/ru/).
 
 ## Unreleased
 
 ### Added
 
-- Группы и новые пункты интерактивного меню: обзор метрик, аномалии, тренд
-  модели, проверка конфига, diff, теги, фильтры, обновление и уведомления.
-- Карантин битого `metrics-history.json`: файл откладывается в `.corrupt-*`,
-  а не затирается пустым набором данных.
-- Маскировка webhook-токенов в crash-отчётах и аргументах командной строки.
+- Groups and new items in the interactive menu: metrics overview, anomalies,
+  model trend, config check, diff, tags, filters, update, and notifications.
+- Quarantine for a corrupted `metrics-history.json`: the file is moved aside to
+  `.corrupt-*` instead of being overwritten with an empty data set.
+- Masking of webhook tokens in crash reports and command-line arguments.
 
 ### Changed
 
-- `CONFIG` живёт в одном источнике (`utils.get_config()`), `--config` больше
-  не зависит от списка импортировавших модулей.
-- Настройка консоли и каталога кеша выполняется по требованию, а не при импорте.
-- Правки JSONC работают с многострочными записями моделей; поиск блоков
-  учитывает строки и комментарии.
-- `cli.main()` разбит на `cli.py`, `commands.py` и `interactive.py`.
-- Бета-теги публикуются как pre-release; установщики живут по постоянным
-  raw-URL и получают версию через GitHub API.
-- HTTP-дашборд обслуживает запросы параллельно.
+- `CONFIG` now has a single source of truth (`utils.get_config()`); `--config`
+  no longer depends on the list of modules that imported it.
+- Console and cache directory setup is performed on demand rather than at import.
+- JSONC edits work with multiline model entries; block search takes strings and
+  comments into account.
+- `cli.main()` has been split into `cli.py`, `commands.py`, and `interactive.py`.
+- Beta tags are published as pre-releases; installers live at permanent raw URLs
+  and obtain the version via the GitHub API.
+- The HTTP dashboard serves requests in parallel.
 
 ### Fixed
 
-- `system_fingerprint` извлекается из SSE — проверка подмены модели снова работает.
-- Проценты успешности в алертах и вебхуках показываются как проценты.
-- HTML/CSV-экспорт экранирует данные и подавляет формулы.
-- Установщик отменяет установку без файла контрольной суммы.
-- Бюджет проб списывается только после успешных запросов.
-- Метки времени метрик хранятся со смещением; старые записи читаются.
-- `install.sh`, `install.ps1` и `--update` работают, когда все релизы — pre-release.
+- `system_fingerprint` is extracted from SSE — model substitution detection works again.
+- Success rates in alerts and webhooks are displayed as percentages.
+- HTML/CSV export escapes data and suppresses formulas.
+- The installer aborts the installation when the checksum file is missing.
+- The probe budget is deducted only after successful requests.
+- Metric timestamps are stored with an offset; old entries are still readable.
+- `install.sh`, `install.ps1`, and `--update` work when all releases are pre-releases.
 
-> Версия не поднята: изменения продолжаются в рамках `0.6.0-beta.1` и войдут
-> в следующий prerelease-релиз.
+> The version has not been bumped: work continues under `0.6.0-beta.1` and will
+> be included in the next prerelease.
 
 ## [0.6.0-beta.1] - 2026-11-22
 
-Полная поддержка Windows и macOS: конфиг ищется по правилам OpenCode, консоль
-не падает на cp1251, установка идёт одной командой, а ошибки уходят в Issue
-по шаблону.
+Full Windows and macOS support: the config is located according to OpenCode rules,
+the console no longer crashes on cp1251, installation takes a single command,
+and errors are reported in Issues using a template.
 
 ### Added
 
-#### Конфиг и пути
+#### Config and paths
 
-- Поиск глобального конфига OpenCode по ОС: `%APPDATA%\opencode` на Windows,
-  `~/Library/Application Support/opencode` на macOS, XDG-каталог на Linux,
-  затем `~/.config/opencode` и машинный каталог.
-- `opencode.jsonc` важнее `opencode.json`; если провайдер `reformboss` есть
-  только в другом файле из списка, выигрывает он.
-- Переопределение пути: `--config <PATH>` и `RB_TUI_CONFIG`. Если конфиг
-  не найден, печатается список проверенных путей.
-- Кеш на Windows: `%LOCALAPPDATA%\rb-tui`.
+- OS-specific lookup of the global OpenCode config: `%APPDATA%\opencode` on Windows,
+  `~/Library/Application Support/opencode` on macOS, the XDG directory on Linux,
+  then `~/.config/opencode` and the machine directory.
+- `opencode.jsonc` takes precedence over `opencode.json`; if the `reformboss`
+  provider exists only in another file in the list, that file wins.
+- Path override: `--config <PATH>` and `RB_TUI_CONFIG`. If no config is found,
+  the list of paths checked is printed.
+- Cache on Windows: `%LOCALAPPDATA%\rb-tui`.
 
-#### Консоль
+#### Console
 
-- `rb_tui/console.py`: вывод в UTF-8 с `errors="replace"`, ANSI через
-  `SetConsoleMode`, пауза Enter перед закрытием окна.
-- Ключ API читается как `utf-8-sig` — BOM из Блокнота больше не даёт 401.
-- `os.replace` повторяется, если файл занят антивирусом или вторым экземпляром.
-- Выбор моделей без `fzf`: номера `1,3,5`, диапазон `2-4`, `all`.
+- `rb_tui/console.py`: UTF-8 output with `errors="replace"`, ANSI via
+  `SetConsoleMode`, and an Enter pause before the window closes.
+- The API key is read as `utf-8-sig` — a BOM from Notepad no longer causes a 401.
+- `os.replace` is retried if the file is locked by an antivirus or a second instance.
+- Model selection without `fzf`: numbers `1,3,5`, range `2-4`, `all`.
 
-#### Уведомления и отчёты
+#### Notifications and reports
 
-- Desktop-уведомления macOS (`osascript`) и Windows (toast через PowerShell).
-- Отчёты о падении: три последних `crash-*.log`, санитайзер секретов,
-  `--diag` и `--report-bug`.
-- Форма Issue на GitHub с заполненным телом — токен в бинарник не вшивается.
-- Переменные `RB_TUI_NO_REPORT_PROMPT` и `RB_TUI_NO_CRASH_HOOK`.
-- Шаблон `.github/ISSUE_TEMPLATE/bug_report.md`.
+- Desktop notifications on macOS (`osascript`) and Windows (toast via PowerShell).
+- Crash reports: the three most recent `crash-*.log` files, a secrets sanitizer,
+  `--diag`, and `--report-bug`.
+- A GitHub Issue form with a pre-filled body — no token is baked into the binary.
+- The `RB_TUI_NO_REPORT_PROMPT` and `RB_TUI_NO_CRASH_HOOK` variables.
+- The `.github/ISSUE_TEMPLATE/bug_report.md` template.
 
-#### Сборка
+#### Builds
 
-- Intel Mac: `rb-tui-darwin-x86_64.tar.gz` на `macos-15-intel`.
+- Intel Mac: `rb-tui-darwin-x86_64.tar.gz` on `macos-15-intel`.
 
 ### Changed
 
-- Бэкапы учитывают имя конфига: `opencode.json` и `opencode.jsonc`.
-- `install.sh`: проверка `shasum -a 256`, определение Rosetta, подсказка
-  для `~/.zshrc`.
-- `install.ps1`: снимает Mark-of-the-Web, предупреждает про SmartScreen
-  и сообщает об ARM64.
-- Неудачная проверка обновлений кешируется; найденная версия сохраняется,
-  если текущая не менялась.
-- CI: Ubuntu 3.10/3.12/3.14, Windows и macOS; smoke `--version` и `--diag`
-  для каждого собранного бинарника.
+- Backups take the config filename into account: `opencode.json` and `opencode.jsonc`.
+- `install.sh`: `shasum -a 256` verification, Rosetta detection, and a hint
+  for `~/.zshrc`.
+- `install.ps1`: removes the Mark-of-the-Web, warns about SmartScreen, and
+  reports ARM64.
+- Failed update checks are cached; a found version is retained if the current
+  one has not changed.
+- CI: Ubuntu 3.10/3.12/3.14, Windows, and macOS; smoke tests of `--version` and
+  `--diag` for every built binary.
 
 ### Fixed
 
-- Эмодзи больше не роняют запуск при перенаправлении вывода в cp1251.
-- Проверки прав `chmod` не выполняются на Windows.
-- Окно Windows не закрывается мгновенно после ошибки.
+- Emoji no longer crash startup when output is redirected to cp1251.
+- `chmod` permission checks are skipped on Windows.
+- The Windows window no longer closes immediately after an error.
 
 ## [0.5.0-beta.2] - 2026-11-22
 
-Автопроверка обновлений и установка для Windows одной командой.
+Automatic update checks and one-command installation for Windows.
 
 ### Added
 
-- При каждом запуске standalone-бинарник проверяет новую версию и пишет
-  `↑ доступна новая версия`; результат кешируется на час
+- On every launch, the standalone binary checks for a new version and prints
+  `↑ a new version is available`; the result is cached for an hour
   (`RB_TUI_UPDATE_TTL`, `RB_TUI_NO_UPDATE_CHECK`).
-- `install.ps1`: скачивает zip, проверяет sha256, распаковывает
-  в `%LOCALAPPDATA%\rb-tui\bin` и добавляет каталог в `PATH`.
-- Заметки релиза берутся из `CHANGELOG.md`, а не из автогенерации коммитов.
+- `install.ps1`: downloads the zip, verifies sha256, unpacks it to
+  `%LOCALAPPDATA%\rb-tui\bin`, and adds the directory to `PATH`.
+- Release notes are taken from `CHANGELOG.md` rather than auto-generated from commits.
 
 ### Changed
 
-- Ручные `--update-check` и `--update` обращаются к GitHub напрямую,
-  чтобы не показать устаревшую версию из кеша.
+- Manual `--update-check` and `--update` queries go directly to GitHub to avoid
+  showing a stale version from the cache.
 
 ## [0.5.0-beta.1] - 2026-11-22
 
-Честные цифры, полная история и дашборд v2.
+Honest numbers, full history, and dashboard v2.
 
 ### Added
 
-- `--trend <model>` — спарклайны TTFT/TTS/TPS по всей истории.
-- `--prune-metrics [N]` — ретеншен истории, по умолчанию 90 дней.
-- `--sort ttft|tps|rate|combined` для `--top`.
-- `--watch-interval`, `--watch-runs` и передача `--probe-budget` в `--watch`.
-- `--test-notify` — диагностика desktop-уведомлений.
-- `--config-check` проверяет файл ключа, права 600, baseURL, пустые имена
-  моделей и расхождение с последним каталогом.
-- Webhook: корректные payload для Slack, Discord и generic, с повторами.
-- `--update` и `--update-check`: бинарник тянет релиз с GitHub, сверяет
-  `sha256`, проверяет запуск нового файла и атомарно заменяет старый;
-  источник переопределяется через `RB_TUI_REPO`.
-- Дашборд v2: карточка модели с KPI, спарклайнами, последними 12 пробами,
-  последней ошибкой и историей fingerprint.
-- Фильтры по провайдеру и тегу, метки ошибок и смены fingerprint в таблице.
-- Экспорт CSV/JSON из панели: `/export.csv`, `/export.json`.
-- `/health` с версией и uptime, `/api/model/<id>` для карточки.
-- Предупреждение при запуске дашборда на не-loopback хосте.
-- Установка одной командой: `curl -fsSL .../install.sh | sh`.
-- Linux-бинарник сам находит системный CA-бандл и работает на Arch/CachyOS.
-- Release-workflow запускается только после зелёных тестов.
+- `--trend <model>` — TTFT/TTS/TPS sparklines across the entire history.
+- `--prune-metrics [N]` — history retention, 90 days by default.
+- `--sort ttft|tps|rate|combined` for `--top`.
+- `--watch-interval`, `--watch-runs`, and passing `--probe-budget` to `--watch`.
+- `--test-notify` — diagnostics for desktop notifications.
+- `--config-check` verifies the key file, 600 permissions, baseURL, empty model
+  names, and divergence from the latest catalog.
+- Webhooks: correct payloads for Slack, Discord, and generic, with retries.
+- `--update` and `--update-check`: the binary fetches the release from GitHub,
+  verifies `sha256`, checks that the new file launches, and atomically replaces
+  the old one; the source can be overridden via `RB_TUI_REPO`.
+- Dashboard v2: model card with KPIs, sparklines, the last 12 probes, the last
+  error, and fingerprint history.
+- Filters by provider and tag, labels for errors and fingerprint changes in the table.
+- CSV/JSON export from the dashboard: `/export.csv`, `/export.json`.
+- `/health` with version and uptime, `/api/model/<id>` for the card.
+- A warning when starting the dashboard on a non-loopback host.
+- One-command installation: `curl -fsSL .../install.sh | sh`.
+- The Linux binary finds the system CA bundle automatically and works on Arch/CachyOS.
+- The release workflow runs only after tests pass.
 
 ### Changed
 
-- `--bench` (3 запроса), `--compare` (6) и `--speed` (1) проверяют и списывают
-  суточный бюджет через guard — лимит нельзя обойти другим флагом.
-- TPS считается по одной формуле везде: `tokens / total`; терминал и дашборд
-  больше не показывают разные числа.
-- `--bench` и `--compare` переведены на стриминг: TTFT, TTS и TPS вместо
-  полного времени ответа под видом TTFT.
-- Метрики, конфиг, состояние каталога, теги и алерты пишутся атомарно
+- `--bench` (3 requests), `--compare` (6), and `--speed` (1) check and deduct the
+  daily budget via the guard — the limit cannot be bypassed with another flag.
+- TPS is calculated by a single formula everywhere: `tokens / total`; the terminal
+  and dashboard no longer show different numbers.
+- `--bench` and `--compare` now use streaming: TTFT, TTS, and TPS instead of full
+  response time presented as TTFT.
+- Metrics, config, catalog state, tags, and alerts are written atomically
   (`tmp + os.replace`).
-- Правки конфига целятся в `providers.reformboss.models`, а не в первый блок
-  `models`; поддержаны `providers` и `provider`.
-- JSONC-парсер принимает висячие запятые перед `}` и `]`.
-- Полная история проб в `metrics-history.jsonl`; горячий хвост в
-  `metrics-history.json` увеличен до 200 записей на модель.
-- Смена `system_fingerprint` отслеживается в `--anomalies`, `--info`,
-  дашборде и уведомлениях.
-- Новые аномалии: скачок TTS, падение TPS, абсолютный порог TTFT.
-- Health score учитывает TPS.
-- Дедупликация алертов: 12 часов для аномалий, 24 часа для dead-моделей.
-- `--group-by-owner` использует реальный `owned_by` из каталога.
-- Сборки Linux x86_64 и Windows не требуют AVX.
-- CI: `compileall`, установка пакета и smoke `rb-tui --version`; 92 теста.
+- Config edits target `providers.reformboss.models` rather than the first `models`
+  block; both `providers` and `provider` are supported.
+- The JSONC parser accepts trailing commas before `}` and `]`.
+- Full probe history in `metrics-history.jsonl`; the hot tail in
+  `metrics-history.json` has been increased to 200 entries per model.
+- `system_fingerprint` changes are tracked in `--anomalies`, `--info`, the
+  dashboard, and notifications.
+- New anomalies: TTS spike, TPS drop, absolute TTFT threshold.
+- Health score now takes TPS into account.
+- Alert deduplication: 12 hours for anomalies, 24 hours for dead models.
+- `--group-by-owner` uses the real `owned_by` value from the catalog.
+- Linux x86_64 and Windows builds no longer require AVX.
+- CI: `compileall`, package installation, and a smoke test of `rb-tui --version`;
+  92 tests.
 
 ### Fixed
 
-- Обрезанный JSON при сбое больше не теряет историю.
-- На Windows обновление применяется сразу после выхода — запущенный `.exe`
-  нельзя перезаписать на месте.
+- Truncated JSON after a crash no longer loses history.
+- On Windows, the update is applied immediately after exit — a running `.exe`
+  cannot be overwritten in place.
 
 ## [0.4.0-beta.1] - 2026-11-22
 
-Стриминговые метрики и новая панель.
+Streaming metrics and a new dashboard.
 
 ### Added
 
-- TTFT измеряется по стриму (`stream: true`), добавлены TTS (время до второго
-  токена) и TPS.
-- Модуль `dashboard_view.py`: данные панели собираются отдельно и покрыты
-  тестами.
-- Дашборд переписан: off-black тема, KPI-карточки, поиск, фильтры по статусу,
-  сортировка, sticky-таблица.
-- Автообновление панели каждые 30 секунд через `/api/view`; `/api/metrics`
-  сохранён для совместимости.
-- Экспорт CSV и HTML: добавлены TTS и TPS.
-- `--stats`, `--info` и таблица теста показывают TTS и TPS.
+- TTFT is measured from the stream (`stream: true`); TTS (time to second token)
+  and TPS have been added.
+- The `dashboard_view.py` module: dashboard data is collected separately and
+  covered by tests.
+- Dashboard rewritten: off-black theme, KPI cards, search, status filters,
+  sorting, sticky table.
+- Dashboard auto-refresh every 30 seconds via `/api/view`; `/api/metrics` is
+  kept for compatibility.
+- CSV and HTML export: TTS and TPS have been added.
+- `--stats`, `--info`, and the test table display TTS and TPS.
 
 ### Changed
 
-- Проба генерирует короткий предсказуемый ответ, чтобы TTS и TPS были
-  осмысленными.
-- Если провайдер не поддерживает стриминг, запрос повторяется обычным.
-- Тестов стало 52.
+- A probe generates a short, predictable response so that TTS and TPS are meaningful.
+- If a provider does not support streaming, the request is retried without it.
+- Test count is now 52.
 
 ## [0.3.0-beta.1] - 2026-11-22
 
-Установка без Python и не только через pip.
+Installation without Python and not only via pip.
 
 ### Added
 
-- Standalone-бинарник на PyInstaller: `packaging/rb-tui.spec`, 12 МБ,
-  Python не нужен.
-- `install.sh` — установка одной командой `curl … | sh` с проверкой sha256.
-- GitHub Actions: релизы под `linux-x86_64`, `linux-arm64`, `darwin-arm64`,
+- Standalone binary built with PyInstaller: `packaging/rb-tui.spec`, 12 MB,
+  no Python required.
+- `install.sh` — one-command installation via `curl … | sh` with sha256 verification.
+- GitHub Actions: releases for `linux-x86_64`, `linux-arm64`, `darwin-arm64`,
   `windows-x86_64`.
-- GitHub Actions: тесты на Python 3.10, 3.12 и 3.14.
-- `scripts/build-binary.sh` — локальная сборка архива для релиза.
+- GitHub Actions: tests on Python 3.10, 3.12, and 3.14.
+- `scripts/build-binary.sh` — local build of a release archive.
 
 ### Changed
 
-- README: четыре способа установки — curl, бинарник, uv, pip.
+- README: four installation methods — curl, binary, uv, pip.
 
 ## [0.2.0-beta.3] - 2026-11-22
 
 ### Added
 
-- Автотесты: 42 теста на `unittest`, без сети (guard, probe, metrics, export,
-  version).
-- Файл `LICENSE` (MIT).
+- Automated tests: 42 `unittest` tests, no network required (guard, probe,
+  metrics, export, version).
+- `LICENSE` file (MIT).
 
 ### Changed
 
-- README: разделы про тесты и лицензию; wheel включает `LICENSE`.
+- README: sections on tests and license; the wheel includes `LICENSE`.
 
 ### Fixed
 
-- `--version` показывает одну и ту же версию из исходников и после
-  `pip install`.
+- `--version` reports the same version from source and after `pip install`.
 
 ## [0.2.0-beta.2] - 2026-11-22
 
-Бережное тестирование: инструмент больше не выглядит как массовый опрос API.
+Gentle testing: the tool no longer looks like a mass API polling operation.
 
 ### Added
 
-- Модуль `guard.py`: бюджет проб, ротация, суточный лимит, cooldown.
-- Пробы только по моделям из живого каталога; пропавшие не зондируются.
-- Порция 10 моделей за прогон (`--probe-budget`), ротация «кого давно
-  не проверяли».
-- Пауза 3 секунды + случайный разброс между запросами.
-- Суточный лимит 80 проб.
-- При `catalog_probe_detected` или `token_concurrency_limit` прогон сразу
-  останавливается, инструмент уходит в 6-часовой cooldown; ложных `dead`
-  больше нет.
-- `--probe-model <model>` — проверить одну модель.
-- `--probe-reset` — снять паузу проб.
-- Ошибки сохраняются в метриках (`msg`) и видны в таблице теста.
+- The `guard.py` module: probe budget, rotation, daily limit, cooldown.
+- Probes only for models in the live catalog; missing models are not probed.
+- A batch of 10 models per run (`--probe-budget`), rotating to models that have
+  not been checked in a long time.
+- A 3-second pause plus random jitter between requests.
+- Daily limit of 80 probes.
+- On `catalog_probe_detected` or `token_concurrency_limit`, the run stops
+  immediately and the tool enters a 6-hour cooldown; no more false `dead` results.
+- `--probe-model <model>` — probe a single model.
+- `--probe-reset` — clear the probe pause.
+- Errors are saved in metrics (`msg`) and shown in the test table.
 
 ### Fixed
 
-- Установка: корректный build-backend и чтение версии после `pip install`.
-- `--json`, `--export-html` и `--export-csv` без аргумента пишут в stdout.
-- Дашборд по умолчанию слушает `127.0.0.1`; понятное сообщение при занятом
-  порту.
-- `--test` в интерактивном терминале действительно запускает тест, а не меню.
+- Installation: correct build backend and version reading after `pip install`.
+- `--json`, `--export-html`, and `--export-csv` write to stdout when called
+  without an argument.
+- The dashboard listens on `127.0.0.1` by default; a clear message is shown when
+  the port is in use.
+- `--test` in an interactive terminal actually runs the test instead of opening
+  the menu.
 
 ## [0.2.0-beta.1] - 2026-11-22
 
 ### Added
 
-- `--top N` — топ моделей по TTFT.
-- `--stats` — общая статистика с health score.
-- `--json`, `--export-html`, `--export-csv` — экспорт метрик.
-- `--history <model>` — ASCII-график TTFT.
-- `--diff` — сравнение с последним бэкапом конфига.
-- `--bench <model>` — бенчмарк на 3 задачах.
-- `--compare <A> <B>` — A/B сравнение моделей.
-- `--speed <model>` — замер tokens/s.
-- Desktop-уведомления о новых и умерших моделях.
-- `--webhook <URL>` — сводка в Slack или Discord.
-- `--serve` — HTTP-дашборд на localhost:9090.
-- `--config-check` — проверка конфига.
-- `--prune-backups` — удаление старых бэкапов.
-- Авто-rollback при битом конфиге.
-- `--fuzzy <query>` — поиск и рекомендация.
-- `--filter <tag>` и `--tag <model> <tag>` — теги моделей.
-- `--info <model>` — детальная информация.
-- `--lifetime` — время жизни моделей.
-- `--watch` — режим наблюдения.
-- `--anomalies` — поиск аномалий.
-- `--group-by-owner` — группировка по провайдеру.
-- Health score — общий балл провайдера.
-- Fingerprint модели (`system_fingerprint`).
+- `--top N` — top models by TTFT.
+- `--stats` — overall statistics with a health score.
+- `--json`, `--export-html`, `--export-csv` — metric export.
+- `--history <model>` — ASCII chart of TTFT.
+- `--diff` — comparison with the latest config backup.
+- `--bench <model>` — benchmark across 3 tasks.
+- `--compare <A> <B>` — A/B comparison of models.
+- `--speed <model>` — measure tokens/s.
+- Desktop notifications about new and dead models.
+- `--webhook <URL>` — summary to Slack or Discord.
+- `--serve` — HTTP dashboard on localhost:9090.
+- `--config-check` — config validation.
+- `--prune-backups` — removal of old backups.
+- Automatic rollback when the config is corrupted.
+- `--fuzzy <query>` — search and recommendations.
+- `--filter <tag>` and `--tag <model> <tag>` — model tags.
+- `--info <model>` — detailed information.
+- `--lifetime` — model lifetimes.
+- `--watch` — watch mode.
+- `--anomalies` — anomaly detection.
+- `--group-by-owner` — grouping by provider.
+- Health score — an overall score for the provider.
+- Model fingerprint (`system_fingerprint`).
 
 ### Changed
 
-- Полная переработка: из монолитного скрипта в pip-пакет `rb-tui`.
-- 13 модулей в `rb_tui/` с чётким разделением ответственности.
-- Systemd-таймер запускается каждый час вместо раза в день.
+- Complete overhaul: from a monolithic script to the `rb-tui` pip package.
+- 13 modules in `rb_tui/` with clear separation of responsibilities.
+- The systemd timer runs every hour instead of once a day.
 
 ## [0.1.0] - 2026-10-25
 
 ### Added
 
-- Первая версия: монолитный скрипт `reformboss-tui`.
-- Сверка каталога ReformBoss с `opencode.json`.
-- Интерактивный TUI с `fzf`.
+- First release: the monolithic `reformboss-tui` script.
+- Reconciliation of the ReformBoss catalog with `opencode.json`.
+- Interactive TUI with `fzf`.
 - `--sync`, `--report`, `--test`.
-- TTFT-замеры и история метрик.
+- TTFT measurements and metric history.
 
 [unreleased]: https://github.com/JeySerYT/rb-tui/compare/v0.6.0-beta.1...HEAD
 [0.6.0-beta.1]: https://github.com/JeySerYT/rb-tui/compare/v0.5.0-beta.2...v0.6.0-beta.1
